@@ -1,5 +1,5 @@
 ---
-description: Check (and optionally repair) the prerequisites for the C# language server: .NET SDK, roslyn-language-server, ENABLE_LSP_TOOL, PATH, and a single active C# plugin.
+description: Check (and optionally repair) the prerequisites for the C# language server (.NET SDK, roslyn-language-server, ENABLE_LSP_TOOL, PATH, and a single active C# plugin).
 ---
 
 Run the doctor and report the result:

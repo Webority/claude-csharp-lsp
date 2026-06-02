@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog, and this project adheres to semantic versioning.
 
+## [0.3.1]
+
+### Fixed
+
+- `/csharp-lsp:doctor` command frontmatter: a colon in the `description` produced
+  invalid YAML, which silently dropped the command's metadata. Rephrased so it
+  parses. Caught by `claude plugin validate`.
+
 ## [0.3.0]
 
 ### Added
