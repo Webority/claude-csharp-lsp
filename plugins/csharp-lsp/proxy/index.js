@@ -29,20 +29,39 @@ const { resolveOpenTarget, pathToFileUri, fileUriToPath } = require('./discovery
 
 const DEFAULT_SERVER_ARGS = ['--stdio', '--logLevel', 'Information'];
 
+// Reverse-lookup operations need Roslyn's cross-solution index, which is built
+// asynchronously after the solution opens. Asked before it is ready they return
+// empty or partial results. We hold these requests until Roslyn signals
+// readiness or a timeout fires, so the client gets a complete answer instead of
+// a misleading empty one. Position-local ops (definition, hover, documentSymbol,
+// prepareCallHierarchy) never need the index and are never held.
+const INDEX_DEPENDENT_METHODS = new Set([
+  'textDocument/references',
+  'textDocument/implementation',
+  'callHierarchy/incomingCalls',
+  'callHierarchy/outgoingCalls',
+  'workspace/symbol',
+]);
+
+// Roslyn sends this once every project in the opened solution has loaded.
+const READY_NOTIFICATION = 'workspace/projectInitializationComplete';
+
 function parseArgs(argv) {
   let server = null;
   let solution = null;
   let logPath = null;
+  let readyTimeoutMs = 60000;
   const serverArgs = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--server') server = argv[++i];
     else if (a === '--solution') solution = argv[++i];
     else if (a === '--log') logPath = argv[++i];
+    else if (a === '--ready-timeout') readyTimeoutMs = Number(argv[++i]) || readyTimeoutMs;
     else if (a === '--') { serverArgs.push(...argv.slice(i + 1)); break; }
     else serverArgs.push(a);
   }
-  return { server, solution, logPath, serverArgs };
+  return { server, solution, logPath, serverArgs, readyTimeoutMs };
 }
 
 function openLog(logPath) {
@@ -125,7 +144,7 @@ function buildOpenNotification(target, log) {
 }
 
 function main() {
-  const { server, solution, logPath, serverArgs } = parseArgs(process.argv.slice(2));
+  const { server, solution, logPath, serverArgs, readyTimeoutMs } = parseArgs(process.argv.slice(2));
   const log = openLog(logPath);
 
   if (!server) {
@@ -138,15 +157,13 @@ function main() {
   const child = spawnServer(serverPath, finalServerArgs, log);
 
   let openSent = false;
+  let indexReady = false;
   let workspaceDirs = [];
   const reader = new FrameReader();
+  const serverReader = new FrameReader(); // inspects server output for the readiness signal
+  const held = [];                        // index-dependent requests parked until ready
+  let readyTimer = null;
 
-  // server -> client: pure byte passthrough (we never alter server output).
-  child.stdout.on('data', (chunk) => process.stdout.write(chunk));
-  // server diagnostics -> our stderr (NOT the LSP channel; Claude treats it as logs).
-  child.stderr.on('data', (chunk) => process.stderr.write(chunk));
-
-  // client -> server: frame, forward verbatim, and inject after `initialized`.
   const writeToServer = (buf) => {
     if (!child.stdin.write(buf)) {
       process.stdin.pause();
@@ -154,6 +171,32 @@ function main() {
     }
   };
 
+  const markReady = (reason) => {
+    if (indexReady) return;
+    indexReady = true;
+    if (readyTimer) { clearTimeout(readyTimer); readyTimer = null; }
+    log(`index ready (${reason})${held.length ? `; releasing ${held.length} held request(s)` : ''}`);
+    while (held.length) writeToServer(held.shift());
+  };
+
+  // server -> client: pass every byte through untouched, and watch a copy of the
+  // stream for the readiness notification.
+  child.stdout.on('data', (chunk) => {
+    process.stdout.write(chunk);
+    if (indexReady) return;
+    try {
+      for (const f of serverReader.push(chunk)) {
+        try {
+          if (JSON.parse(f.body.toString('utf8')).method === READY_NOTIFICATION) markReady('projectInitializationComplete');
+        } catch { /* ignore non-JSON frames */ }
+      }
+    } catch { /* never let inspection break the pipe */ }
+  });
+  // server diagnostics -> our stderr (NOT the LSP channel; Claude treats it as logs).
+  child.stderr.on('data', (chunk) => process.stderr.write(chunk));
+
+  // client -> server: forward verbatim, inject the open notification after
+  // `initialized`, and hold index-dependent requests until the index is ready.
   process.stdin.on('data', (chunk) => {
     let frames;
     try {
@@ -178,13 +221,26 @@ function main() {
         log(`initialize: workspace dirs = [${workspaceDirs.join(', ')}]`);
       }
 
-      writeToServer(frame.raw); // always forward the client's exact bytes
+      if (!indexReady && INDEX_DEPENDENT_METHODS.has(method)) {
+        held.push(frame.raw);
+        log(`holding ${method} until index ready (${held.length} queued)`);
+        continue; // park it; released by markReady()
+      }
+
+      writeToServer(frame.raw); // forward the client's exact bytes
 
       if (method === 'initialized' && !openSent) {
         openSent = true;
         const target = resolveOpenTarget(workspaceDirs, solution);
         const notification = buildOpenNotification(target, log);
-        if (notification) writeToServer(notification);
+        if (notification) {
+          writeToServer(notification);
+          // Safety net: if Roslyn never signals readiness, stop holding after the cap.
+          readyTimer = setTimeout(() => markReady(`timeout ${readyTimeoutMs}ms`), readyTimeoutMs);
+          if (readyTimer.unref) readyTimer.unref();
+        } else {
+          markReady('no solution opened'); // nothing to index; never hold
+        }
       }
     }
   });

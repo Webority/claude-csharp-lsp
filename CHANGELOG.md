@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog, and this project adheres to semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- Index-readiness gating. Reverse-lookup requests (`textDocument/references`,
+  `textDocument/implementation`, call hierarchy) are held until Roslyn finishes
+  building its cross-solution index, then released, so the first such query
+  returns a complete result instead of an empty or partial one. Falls back to a
+  configurable cap (`--ready-timeout`, default 60s) if the readiness signal does
+  not arrive. Position-local operations (definition, hover, documentSymbol) are
+  never held.
+
 ## [0.1.0]
 
 Initial release.

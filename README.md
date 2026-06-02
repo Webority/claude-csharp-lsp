@@ -88,13 +88,16 @@ The defaults need no configuration. To pin a specific solution (for example a cu
   "${CLAUDE_PLUGIN_ROOT}/proxy/index.js",
   "--server", "roslyn-language-server",
   "--solution", "C:/path/to/Master.sln",
+  "--ready-timeout", "60000",
   "--", "--stdio", "--logLevel", "Information"
 ]
 ```
 
+`--ready-timeout <ms>` caps how long the proxy holds reverse-lookup requests while waiting for Roslyn's index to finish (default 60000). After the cap it forwards them anyway.
+
 ## Troubleshooting
 
-- First reverse-lookup is slow or returns only the declaration. Roslyn builds its cross-solution index in the background after the solution opens (about 20 to 35 seconds on large solutions). `findReferences`, `incomingCalls`, and `workspaceSymbol` need that index; local operations like `documentSymbol`, `hover`, and `goToDefinition` work immediately. Wait and retry.
+- First reverse-lookup after a solution opens can take 20 to 35 seconds on large solutions. The proxy holds reverse-lookup requests (`findReferences`, `goToImplementation`, call hierarchy) until Roslyn finishes building its cross-solution index, then returns a complete result, so you get the right answer in one call instead of an empty one. Local operations (`documentSymbol`, `hover`, `goToDefinition`) are never held and respond immediately. The hold has a safety cap (default 60 seconds, set with `--ready-timeout`).
 - Nothing resolves. Check `<temp>/claude-csharp-lsp-logs/proxy.log`. You should see `open: solution/open ...` or `open: project/open N projects`. If it says `none`, no `.sln`, `.slnx`, or `.csproj` was found under your workspace folder.
 - `roslyn-language-server` not found. Confirm `~/.dotnet/tools` is on `PATH` and the tool is installed.
 - Only one C# LSP plugin should be enabled. Two plugins claiming `.cs` spawn competing Roslyn servers, which slows and scrambles indexing.
