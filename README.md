@@ -35,6 +35,22 @@ The discovery logic is what makes it work everywhere:
 
 That third row is the point: multi-repo works with no setup, and you get full cross-file navigation in every repo.
 
+## Example
+
+A workspace with three repos open side by side: `shared/` defines a method, `orders/` and `billing/` each call it.
+
+```
+> Find all references to PricingService.Calculate across the workspace.
+
+  shared/Pricing/PricingService.cs:4    public static decimal Calculate(decimal subtotal, decimal taxRate)
+  orders/Orders/Program.cs:2            var total   = PricingService.Calculate(100m, 0.08m);
+  billing/Billing/Program.cs:2          var invoice = PricingService.Calculate(250m, 0.05m);
+
+  3 references across 3 repositories
+```
+
+Without the plugin, the same query returns only the declaration in `PricingService.cs`: Roslyn never loaded the other projects, so the call sites are invisible.
+
 ## Requirements
 
 - [Claude Code](https://claude.com/claude-code) 2.1.50 or newer
