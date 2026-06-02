@@ -1,0 +1,14 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Proxy logs (written to the OS temp dir at runtime, but ignore any local ones)
+*.log
+proxy-logs/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vs/
+.idea/
+*.user

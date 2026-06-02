@@ -1,0 +1,13 @@
+{
+  "name": "csharp-lsp",
+  "description": "Solution-aware C# (Roslyn) LSP for Claude Code with multi-repo and multi-solution support. Wraps Microsoft's Roslyn language server and sends the solution/open notification Claude Code's client omits.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Webority Technologies",
+    "url": "https://github.com/Webority"
+  },
+  "homepage": "https://github.com/Webority/claude-csharp-lsp",
+  "repository": "https://github.com/Webority/claude-csharp-lsp",
+  "license": "MIT",
+  "keywords": ["csharp", "dotnet", "roslyn", "lsp", "language-server", "claude-code", "multi-repo", "monorepo"]
+}

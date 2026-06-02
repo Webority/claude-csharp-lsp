@@ -1,0 +1,16 @@
+{
+  "name": "claude-csharp-lsp",
+  "metadata": {
+    "description": "Solution-aware C# (Roslyn) language intelligence for Claude Code, with multi-repo and multi-solution workspaces handled as a first-class case."
+  },
+  "owner": {
+    "name": "Webority Technologies",
+    "url": "https://github.com/Webority"
+  },
+  "plugins": [
+    {
+      "name": "csharp-lsp",
+      "source": "./plugins/csharp-lsp"
+    }
+  ]
+}
