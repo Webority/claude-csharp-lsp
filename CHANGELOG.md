@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog, and this project adheres to semantic versioning.
 
+## [0.3.2]
+
+### Fixed
+
+- Crash recovery. When the Roslyn server died unexpectedly (crash, OOM, or a
+  signal kill, where the exit code is `null`), the proxy exited `0`, which Claude
+  Code reads as an intentional stop and so does not restart the server. The
+  result was a dead language server for the rest of the session. The proxy now
+  exits non-zero on any unexpected Roslyn exit and `0` only when the client asked
+  for an LSP `shutdown`/`exit`, so the host's restart policy (`maxRestarts` in
+  `.lsp.json`) fires and the handshake re-runs fresh. Note that Claude Code does
+  not currently restart a server that it signal-kills itself or that dies on
+  session resume; those still need a full Claude Code restart.
+
 ## [0.3.1]
 
 ### Fixed

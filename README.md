@@ -82,7 +82,7 @@ LSP-based edits (rename, code actions, formatting) are not exposed by Claude Cod
 - Byte-exact passthrough. Server-to-client output is piped verbatim; client-to-server messages are forwarded as the exact bytes received. The proxy only reads `initialize` (to learn your workspace folders) and injects one notification after `initialized`.
 - Logs to a file, never stdout. stdout is the LSP channel; diagnostics go to `<temp>/claude-csharp-lsp-logs/proxy.log`.
 - Windows-safe. Roslyn's `.cmd` shim is launched via `cmd.exe /d /c` so binary LSP framing is not corrupted.
-- Clean teardown. On exit the proxy kills its entire Roslyn child tree, so restarts never leave orphaned language servers. If Roslyn exits, the proxy exits too and the host restarts it fresh.
+- Clean teardown and crash recovery. On exit the proxy kills its entire Roslyn child tree, so restarts never leave orphaned language servers. If Roslyn dies unexpectedly the proxy exits non-zero so Claude Code's restart policy (`maxRestarts`) brings the stack back and re-runs the handshake; on a client-initiated shutdown it exits cleanly so nothing is restarted.
 - Index-aware. Reverse-lookups are held until Roslyn's cross-solution index is ready, so the first query returns a complete result instead of an empty one.
 - Real MSBuild. Because it drives Roslyn, projects that use `Directory.Build.props`, `Directory.Build.targets`, or Central Package Management load and resolve correctly, which is a common failure point for non-Roslyn servers.
 
@@ -132,6 +132,7 @@ Precedence: `--solution` > `solution` > `solutions` > automatic discovery.
 ## Known limitations
 
 - `workspaceSymbol` does not work through Claude Code's LSP tool. The tool sends an empty query with no symbol position, so Roslyn has nothing to search for and returns an empty set. This is a limitation of the host tool, not the proxy. To find a symbol by name, use grep or Glob to locate it, then run a position-based operation such as `findReferences` or `goToDefinition`.
+- Recovery from a signal kill or session resume is host-limited. The proxy signals a crash correctly (non-zero exit) so Claude Code restarts it, but the host does not currently restart a server it signal-kills itself or one that dies on session resume. If navigation goes dead after a resume, restart Claude Code.
 
 ## Contributing
 

@@ -165,6 +165,7 @@ function main() {
   const serverReader = new FrameReader(); // inspects server output for the readiness signal
   const held = [];                        // index-dependent requests parked until ready
   let readyTimer = null;
+  let clientRequestedShutdown = false;    // set when the client asks for an LSP shutdown/exit
 
   const writeToServer = (buf) => {
     if (!child.stdin.write(buf)) {
@@ -225,6 +226,10 @@ function main() {
         log(`initialize: workspace dirs = [${workspaceDirs.join(', ')}]${Object.keys(config).length ? ' (.roslynlsp.json loaded)' : ''}`);
       }
 
+      // A client-driven shutdown means a later Roslyn exit is expected, not a
+      // crash. Record it so the exit handler can tell the two apart.
+      if (method === 'shutdown' || method === 'exit') clientRequestedShutdown = true;
+
       if (!indexReady && INDEX_DEPENDENT_METHODS.has(method)) {
         held.push(frame.raw);
         log(`holding ${method} until index ready (${held.length} queued)`);
@@ -277,13 +282,22 @@ function main() {
   process.on('SIGTERM', () => shutdown(0));
   process.stdin.on('end', () => shutdown(0));
 
-  // If Roslyn exits (crash or normal LSP shutdown), exit too. For a crash the
-  // host's restart policy then brings the whole stack back fresh, rather than
-  // leaving a half-dead session behind.
-  child.on('exit', (code) => {
+  // If Roslyn exits, exit too. The exit code we report decides whether the host
+  // restarts us: Claude Code re-spawns an LSP server (up to maxRestarts) on a
+  // non-zero exit, but treats exit 0 as an intentional stop and leaves it dead.
+  // So exit 0 only when the client actually asked to shut down; on any
+  // unexpected death (crash, OOM, or signal kill where code is null) exit
+  // non-zero so the restart policy fires and re-runs the handshake fresh.
+  child.on('exit', (code, signal) => {
     if (shuttingDown) return;
-    log(`server exited (code=${code}); shutting down proxy for a clean host restart`);
-    shutdown(code == null ? 0 : code);
+    if (clientRequestedShutdown) {
+      log(`server exited (code=${code}); client-initiated shutdown, exiting clean`);
+      shutdown(0);
+    } else {
+      const exitCode = code && code !== 0 ? code : 1;
+      log(`server exited unexpectedly (code=${code}, signal=${signal || 'none'}); exiting ${exitCode} so the host restarts the stack`);
+      shutdown(exitCode);
+    }
   });
   child.on('error', (err) => {
     log(`server spawn error: ${err.message}`);
