@@ -152,4 +152,69 @@ test('config exclude prunes a directory from discovery', () => {
   assert.strictEqual(path.basename(r.paths[0]), 'Real.csproj');
 });
 
-console.log(`\n${passed} tests passed.`);
+// Spawn-based tests for the crash-recovery exit-code contract. The pure-logic
+// tests above cannot cover this: the exit path only runs when a real child
+// process dies. These launch the actual proxy against a fake server and assert
+// the exit code it reports, since that code is what decides whether Claude Code
+// restarts the server.
+const { spawn } = require('child_process');
+const PROXY = path.join(__dirname, 'index.js');
+
+// A fake LSP "server": reads stdin, then per mode either leaves cleanly once the
+// client sends `exit`, crashes unprompted, or signal-kills itself unprompted.
+function writeFakeServer(mode) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'csls-fake-'));
+  const file = path.join(dir, 'fake.js');
+  fs.writeFileSync(file, [
+    "let buf = '';",
+    `const mode = ${JSON.stringify(mode)};`,
+    "process.stdin.on('data', d => {",
+    "  buf += d.toString();",
+    "  if (mode === 'clean' && buf.includes('\"method\":\"exit\"')) process.exit(0);",
+    "});",
+    "if (mode === 'crash') setTimeout(() => process.exit(7), 30);",
+    "if (mode === 'signal') setTimeout(() => process.kill(process.pid, 'SIGKILL'), 30);",
+  ].join('\n'));
+  return file;
+}
+
+// Run the proxy against a fake server; if sendExit, send the client's
+// shutdown/exit handshake first. Resolves with the proxy's exit code.
+function runProxy(mode, sendExit) {
+  return new Promise((resolve, reject) => {
+    const fake = writeFakeServer(mode);
+    const proxy = spawn(process.execPath, [PROXY, '--server', process.execPath, '--', fake], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const timer = setTimeout(() => { proxy.kill('SIGKILL'); reject(new Error('proxy did not exit in time')); }, 5000);
+    proxy.on('exit', (code) => { clearTimeout(timer); resolve(code); });
+    proxy.on('error', reject);
+    if (sendExit) {
+      proxy.stdin.write(encodeMessage({ jsonrpc: '2.0', id: 1, method: 'shutdown' }));
+      proxy.stdin.write(encodeMessage({ jsonrpc: '2.0', method: 'exit' }));
+    }
+    // For crash/signal we leave stdin open: ending it would trigger the proxy's
+    // own clean-shutdown path and mask the crash we are trying to observe.
+  });
+}
+
+(async () => {
+  console.log('exit-code (crash recovery):');
+
+  const clean = await runProxy('clean', true);
+  assert.strictEqual(clean, 0, `client-initiated shutdown should exit 0, got ${clean}`);
+  console.log('  ok  client-initiated shutdown exits 0'); passed++;
+
+  const crash = await runProxy('crash', false);
+  assert.notStrictEqual(crash, 0, `unexpected crash should exit non-zero, got ${crash}`);
+  console.log('  ok  unexpected crash exits non-zero (host restarts)'); passed++;
+
+  const signal = await runProxy('signal', false);
+  assert.notStrictEqual(signal, 0, `signal kill should exit non-zero, got ${signal}`);
+  console.log('  ok  signal kill exits non-zero (the v0.3.2 regression: was exit 0)'); passed++;
+
+  console.log(`\n${passed} tests passed.`);
+})().catch((err) => {
+  console.error(`\nFAILED: ${err.message}`);
+  process.exit(1);
+});
