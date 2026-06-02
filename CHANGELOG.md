@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog, and this project adheres to semantic versioning.
 
-## [Unreleased]
+## [0.3.0]
 
 ### Added
 
@@ -11,6 +11,14 @@ Keep a Changelog, and this project adheres to semantic versioning.
   server, which serves the C# inside `@code` blocks via cohosting, so navigation
   (references, definition, implementation, call hierarchy) works inside
   components. No separate Razor server required.
+- Workspace config (`.roslynlsp.json`). Optional file at the workspace root to
+  pin a solution, load the union of several solutions, exclude directories, or
+  set the readiness-hold cap, without editing the plugin.
+- Multi-solution union via the `solutions` config key: loads every project from
+  the listed solutions so navigation spans them.
+- Confirmed support for projects using `Directory.Build.props`,
+  `Directory.Build.targets`, and Central Package Management, which load
+  correctly through Roslyn's real MSBuild evaluation.
 
 ## [0.2.0]
 

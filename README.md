@@ -84,6 +84,7 @@ LSP-based edits (rename, code actions, formatting) are not exposed by Claude Cod
 - Windows-safe. Roslyn's `.cmd` shim is launched via `cmd.exe /d /c` so binary LSP framing is not corrupted.
 - Clean teardown. On exit the proxy kills its entire Roslyn child tree, so restarts never leave orphaned language servers. If Roslyn exits, the proxy exits too and the host restarts it fresh.
 - Index-aware. Reverse-lookups are held until Roslyn's cross-solution index is ready, so the first query returns a complete result instead of an empty one.
+- Real MSBuild. Because it drives Roslyn, projects that use `Directory.Build.props`, `Directory.Build.targets`, or Central Package Management load and resolve correctly, which is a common failure point for non-Roslyn servers.
 
 ## Configuration
 
@@ -100,6 +101,26 @@ The defaults need no configuration. To pin a specific solution (for example a cu
 ```
 
 `--ready-timeout <ms>` caps how long the proxy holds reverse-lookup requests while waiting for Roslyn's index to finish (default 60000). After the cap it forwards them anyway.
+
+### Workspace config (`.roslynlsp.json`)
+
+Drop a `.roslynlsp.json` at your workspace root to steer discovery without editing the plugin:
+
+```json
+{
+  "solution": "src/App.slnx",
+  "solutions": ["api/Api.slnx", "web/Web.slnx"],
+  "exclude": ["legacy", "samples"],
+  "readyTimeoutMs": 90000
+}
+```
+
+- `solution`: pin one solution (relative to the workspace, or absolute).
+- `solutions`: load the union of these solutions' projects, for multi-solution workspaces.
+- `exclude`: directory names or path prefixes to skip during discovery.
+- `readyTimeoutMs`: override the index-readiness hold cap.
+
+Precedence: `--solution` > `solution` > `solutions` > automatic discovery.
 
 ## Troubleshooting
 

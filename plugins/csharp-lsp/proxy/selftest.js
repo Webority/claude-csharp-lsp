@@ -8,7 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { FrameReader, encodeMessage } = require('./framing');
-const { resolveOpenTarget, pathToFileUri, fileUriToPath } = require('./discovery');
+const { resolveOpenTarget, loadConfig, pathToFileUri, fileUriToPath } = require('./discovery');
 
 let passed = 0;
 function test(name, fn) {
@@ -113,6 +113,40 @@ test('explicit solution overrides discovery', () => {
 test('prunes bin/obj/node_modules', () => {
   const root = tmpWorkspace(['bin/Ghost.csproj', 'obj/Ghost2.csproj', 'src/Real.csproj']);
   const r = resolveOpenTarget([root]);
+  assert.strictEqual(r.kind, 'projects');
+  assert.strictEqual(r.paths.length, 1);
+  assert.strictEqual(path.basename(r.paths[0]), 'Real.csproj');
+});
+
+console.log('config (.roslynlsp.json):');
+
+test('loadConfig reads .roslynlsp.json', () => {
+  const root = tmpWorkspace(['App.sln']);
+  fs.writeFileSync(path.join(root, '.roslynlsp.json'), JSON.stringify({ readyTimeoutMs: 90000, exclude: ['legacy'] }));
+  const cfg = loadConfig(root);
+  assert.strictEqual(cfg.readyTimeoutMs, 90000);
+  assert.deepStrictEqual(cfg.exclude, ['legacy']);
+});
+
+test('config solution pin overrides discovery', () => {
+  const root = tmpWorkspace(['A.sln', 'B.sln', 'src/A.csproj']);
+  const r = resolveOpenTarget([root], null, { solution: 'B.sln' });
+  assert.strictEqual(r.kind, 'solution');
+  assert.strictEqual(path.basename(r.path), 'B.sln');
+});
+
+test('config solutions union loads referenced projects', () => {
+  const root = tmpWorkspace(['repoA/src/A.csproj', 'repoB/src/B.csproj']);
+  fs.writeFileSync(path.join(root, 'repoA/A.slnx'), '<Solution><Project Path="src/A.csproj" /></Solution>');
+  fs.writeFileSync(path.join(root, 'repoB/B.slnx'), '<Solution><Project Path="src/B.csproj" /></Solution>');
+  const r = resolveOpenTarget([root], null, { solutions: ['repoA/A.slnx', 'repoB/B.slnx'] });
+  assert.strictEqual(r.kind, 'projects');
+  assert.strictEqual(r.paths.length, 2);
+});
+
+test('config exclude prunes a directory from discovery', () => {
+  const root = tmpWorkspace(['src/Real.csproj', 'legacy/Old.csproj']);
+  const r = resolveOpenTarget([root], null, { exclude: ['legacy'] });
   assert.strictEqual(r.kind, 'projects');
   assert.strictEqual(r.paths.length, 1);
   assert.strictEqual(path.basename(r.paths[0]), 'Real.csproj');

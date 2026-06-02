@@ -25,7 +25,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { FrameReader, encodeMessage } = require('./framing');
-const { resolveOpenTarget, pathToFileUri, fileUriToPath } = require('./discovery');
+const { resolveOpenTarget, loadConfig, pathToFileUri, fileUriToPath } = require('./discovery');
 
 const DEFAULT_SERVER_ARGS = ['--stdio', '--logLevel', 'Information'];
 
@@ -159,6 +159,8 @@ function main() {
   let openSent = false;
   let indexReady = false;
   let workspaceDirs = [];
+  let config = {};
+  let readyTimeoutEffective = readyTimeoutMs;
   const reader = new FrameReader();
   const serverReader = new FrameReader(); // inspects server output for the readiness signal
   const held = [];                        // index-dependent requests parked until ready
@@ -218,7 +220,9 @@ function main() {
 
       if (method === 'initialize') {
         workspaceDirs = extractWorkspaceDirs(params);
-        log(`initialize: workspace dirs = [${workspaceDirs.join(', ')}]`);
+        config = loadConfig(workspaceDirs[0]);
+        if (config.readyTimeoutMs) readyTimeoutEffective = Number(config.readyTimeoutMs) || readyTimeoutEffective;
+        log(`initialize: workspace dirs = [${workspaceDirs.join(', ')}]${Object.keys(config).length ? ' (.roslynlsp.json loaded)' : ''}`);
       }
 
       if (!indexReady && INDEX_DEPENDENT_METHODS.has(method)) {
@@ -231,12 +235,12 @@ function main() {
 
       if (method === 'initialized' && !openSent) {
         openSent = true;
-        const target = resolveOpenTarget(workspaceDirs, solution);
+        const target = resolveOpenTarget(workspaceDirs, solution, config);
         const notification = buildOpenNotification(target, log);
         if (notification) {
           writeToServer(notification);
           // Safety net: if Roslyn never signals readiness, stop holding after the cap.
-          readyTimer = setTimeout(() => markReady(`timeout ${readyTimeoutMs}ms`), readyTimeoutMs);
+          readyTimer = setTimeout(() => markReady(`timeout ${readyTimeoutEffective}ms`), readyTimeoutEffective);
           if (readyTimer.unref) readyTimer.unref();
         } else {
           markReady('no solution opened'); // nothing to index; never hold
