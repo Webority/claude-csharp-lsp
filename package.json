@@ -14,5 +14,16 @@
   "scripts": {
     "test": "node plugins/csharp-lsp/proxy/selftest.js"
   },
-  "keywords": ["csharp", "dotnet", "roslyn", "lsp", "language-server", "claude-code", "multi-repo", "monorepo"]
+  "keywords": [
+    "csharp",
+    "dotnet",
+    "roslyn",
+    "lsp",
+    "language-server",
+    "claude-code",
+    "multi-repo",
+    "monorepo",
+    "razor",
+    "blazor"
+  ]
 }

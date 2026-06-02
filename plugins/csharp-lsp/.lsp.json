@@ -12,7 +12,8 @@
     "extensionToLanguage": {
       ".cs": "csharp",
       ".csx": "csharp",
-      ".cshtml": "csharp"
+      ".razor": "razor",
+      ".cshtml": "razor"
     },
     "startupTimeout": 120000,
     "maxRestarts": 3

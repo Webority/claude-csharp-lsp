@@ -72,6 +72,8 @@ Claude Code's LSP tool surfaces read and navigation operations, all of which thi
 
 `findReferences`, `goToDefinition`, `goToImplementation`, `hover`, `documentSymbol`, `prepareCallHierarchy`, `incomingCalls`, `outgoingCalls`.
 
+These apply to C# (`.cs`) and to Razor/Blazor components (`.razor`, `.cshtml`). Roslyn serves the C# inside Razor `@code` blocks via cohosting, so navigation works inside components too.
+
 LSP-based edits (rename, code actions, formatting) are not exposed by Claude Code's tool, so they are out of scope. Claude edits files directly and you verify with `dotnet build`.
 
 ## How it works

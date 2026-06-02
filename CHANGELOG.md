@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog, and this project adheres to semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- Razor / Blazor support. `.razor` and `.cshtml` files are routed to the Roslyn
+  server, which serves the C# inside `@code` blocks via cohosting, so navigation
+  (references, definition, implementation, call hierarchy) works inside
+  components. No separate Razor server required.
+
 ## [0.2.0]
 
 ### Added

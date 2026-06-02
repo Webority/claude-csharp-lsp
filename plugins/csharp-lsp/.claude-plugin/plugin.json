@@ -9,5 +9,16 @@
   "homepage": "https://github.com/Webority/claude-csharp-lsp",
   "repository": "https://github.com/Webority/claude-csharp-lsp",
   "license": "MIT",
-  "keywords": ["csharp", "dotnet", "roslyn", "lsp", "language-server", "claude-code", "multi-repo", "monorepo"]
+  "keywords": [
+    "csharp",
+    "dotnet",
+    "roslyn",
+    "lsp",
+    "language-server",
+    "claude-code",
+    "multi-repo",
+    "monorepo",
+    "razor",
+    "blazor"
+  ]
 }
