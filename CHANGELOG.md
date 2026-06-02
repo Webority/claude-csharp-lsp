@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog, and this project adheres to semantic versioning.
 
-## [Unreleased]
+## [0.2.0]
 
 ### Added
 
@@ -18,6 +18,9 @@ Keep a Changelog, and this project adheres to semantic versioning.
   roslyn-language-server and its PATH entry, `ENABLE_LSP_TOOL`, and that exactly
   one C# language server is active) and, with `--fix`, installs the tool and
   sets `ENABLE_LSP_TOOL`. Zero dependencies; runnable standalone.
+- Clean teardown. On exit the proxy kills its entire Roslyn child tree, so
+  restarts never leave orphaned language servers. If Roslyn exits, the proxy
+  exits too so the host can restart the whole stack fresh.
 
 ## [0.1.0]
 

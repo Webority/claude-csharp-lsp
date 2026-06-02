@@ -80,6 +80,8 @@ LSP-based edits (rename, code actions, formatting) are not exposed by Claude Cod
 - Byte-exact passthrough. Server-to-client output is piped verbatim; client-to-server messages are forwarded as the exact bytes received. The proxy only reads `initialize` (to learn your workspace folders) and injects one notification after `initialized`.
 - Logs to a file, never stdout. stdout is the LSP channel; diagnostics go to `<temp>/claude-csharp-lsp-logs/proxy.log`.
 - Windows-safe. Roslyn's `.cmd` shim is launched via `cmd.exe /d /c` so binary LSP framing is not corrupted.
+- Clean teardown. On exit the proxy kills its entire Roslyn child tree, so restarts never leave orphaned language servers. If Roslyn exits, the proxy exits too and the host restarts it fresh.
+- Index-aware. Reverse-lookups are held until Roslyn's cross-solution index is ready, so the first query returns a complete result instead of an empty one.
 
 ## Configuration
 

@@ -1,6 +1,6 @@
 {
   "name": "claude-csharp-lsp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Solution-aware C# (Roslyn) language server for Claude Code. A zero-dependency Node LSP proxy with multi-repo support.",
   "license": "MIT",
   "author": "Webority Technologies (https://github.com/Webority)",

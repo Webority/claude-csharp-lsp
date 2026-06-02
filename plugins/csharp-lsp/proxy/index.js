@@ -20,7 +20,7 @@
 //   node index.js --server <roslyn-language-server> [--solution <path>]
 //                 [--log <path>] [-- <args forwarded to the server>]
 
-const { spawn } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -245,14 +245,47 @@ function main() {
     }
   });
 
+  let shuttingDown = false;
+
+  // Kill the whole child process tree. On Windows, Roslyn runs under a cmd.exe
+  // shim, so killing only `child` would orphan the dotnet grandchild; that is
+  // how stray Roslyn servers accumulate across restarts. `taskkill /t` walks the
+  // tree, SIGKILL covers POSIX. Best-effort: the target may already be gone.
+  const killTree = (pid) => {
+    if (!pid) return;
+    try {
+      if (process.platform === 'win32') execFileSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' });
+      else process.kill(pid, 'SIGKILL');
+    } catch { /* already dead, or nothing to kill */ }
+  };
+
   const shutdown = (code) => {
-    try { if (!child.killed) child.kill(); } catch { /* best effort */ }
+    if (shuttingDown) return;
+    shuttingDown = true;
+    if (readyTimer) { try { clearTimeout(readyTimer); } catch { /* ignore */ } }
+    killTree(child && child.pid);
     process.exit(code);
   };
 
+  // Exit cleanly on host/OS termination so a Roslyn process is never stranded.
+  // On Windows the host typically closes our stdin, which fires 'end' below.
+  process.on('SIGINT', () => shutdown(0));
+  process.on('SIGTERM', () => shutdown(0));
   process.stdin.on('end', () => shutdown(0));
-  child.on('exit', (code) => { log(`server exited code=${code}`); shutdown(code == null ? 0 : code); });
-  child.on('error', (err) => { log(`server spawn error: ${err.message}`); process.stderr.write(`claude-csharp-lsp: ${err.message}\n`); shutdown(1); });
+
+  // If Roslyn exits (crash or normal LSP shutdown), exit too. For a crash the
+  // host's restart policy then brings the whole stack back fresh, rather than
+  // leaving a half-dead session behind.
+  child.on('exit', (code) => {
+    if (shuttingDown) return;
+    log(`server exited (code=${code}); shutting down proxy for a clean host restart`);
+    shutdown(code == null ? 0 : code);
+  });
+  child.on('error', (err) => {
+    log(`server spawn error: ${err.message}`);
+    process.stderr.write(`claude-csharp-lsp: ${err.message}\n`);
+    shutdown(1);
+  });
 }
 
 main();
