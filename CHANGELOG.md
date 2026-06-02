@@ -14,6 +14,10 @@ Keep a Changelog, and this project adheres to semantic versioning.
   configurable cap (`--ready-timeout`, default 60s) if the readiness signal does
   not arrive. Position-local operations (definition, hover, documentSymbol) are
   never held.
+- `/csharp-lsp:doctor` command. Checks the prerequisites (.NET SDK,
+  roslyn-language-server and its PATH entry, `ENABLE_LSP_TOOL`, and that exactly
+  one C# language server is active) and, with `--fix`, installs the tool and
+  sets `ENABLE_LSP_TOOL`. Zero dependencies; runnable standalone.
 
 ## [0.1.0]
 

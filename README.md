@@ -64,6 +64,8 @@ Then fully restart Claude Code (the language server is launched fresh on start).
 
 The proxy ships inside the plugin, so there is nothing else to install: no NuGet package and no binary download. `/plugin marketplace add` delivers everything.
 
+Run `/csharp-lsp:doctor` at any time to verify your setup. It checks the .NET SDK, the Roslyn language server and its PATH entry, `ENABLE_LSP_TOOL`, and that only one C# language server is active, and it can fix the common issues for you.
+
 ## Supported operations
 
 Claude Code's LSP tool surfaces read and navigation operations, all of which this proxy makes solution-aware:
