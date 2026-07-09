@@ -56,7 +56,7 @@ let toolInstalled = false;
   const list = run('dotnet', ['tool', 'list', '--global']);
   toolInstalled = !!(list && /roslyn-language-server/i.test(list));
   if (toolInstalled) add('roslyn-language-server', 'PASS', 'installed (global tool)');
-  else add('roslyn-language-server', 'FAIL', 'not installed', 'dotnet tool install --global roslyn-language-server');
+  else add('roslyn-language-server', 'FAIL', 'not installed', 'dotnet tool install --global roslyn-language-server --prerelease');
 }
 
 // 4. global tools dir on PATH
@@ -109,7 +109,7 @@ console.log(`\n${results.length} checks, ${fails} failed, ${warns} warning(s).`)
 if (FIX) {
   console.log('\nApplying safe fixes...');
   if (!toolInstalled) {
-    const out = run('dotnet', ['tool', 'install', '--global', 'roslyn-language-server']);
+    const out = run('dotnet', ['tool', 'install', '--global', 'roslyn-language-server', '--prerelease']);
     console.log(out !== null ? '  installed roslyn-language-server' : '  could not install roslyn-language-server; run it manually');
   }
   const s = readJson(settingsPath) || {};

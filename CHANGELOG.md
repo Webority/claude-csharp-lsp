@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog, and this project adheres to semantic versioning.
 
+## [0.3.3]
+
+### Fixed
+
+- Doctor auto-fix. `doctor.js` recommended and (with `--fix`) ran
+  `dotnet tool install --global roslyn-language-server` without `--prerelease`.
+  The tool publishes prerelease-only builds, so on a clean machine the install
+  failed with "not found in NuGet feeds" and the doctor could not self-heal.
+  Both the suggested fix hint and the auto-fix command now pass `--prerelease`.
+
 ## [0.3.2]
 
 ### Fixed
