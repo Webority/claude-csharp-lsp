@@ -1,0 +1,2 @@
+* text=auto eol=lf
+*.{bat,cmd} text eol=crlf
