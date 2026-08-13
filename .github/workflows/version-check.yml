@@ -1,0 +1,86 @@
+# PR gate: this repo ships as a Claude Code plugin from the git marketplace — there is no
+# publish step, so THE VERSION IS THE RELEASE MECHANISM. Merge to main without a bump and
+# every user's `/plugin update` sees the same version and installs nothing. Same silent-nothing
+# failure as an unbumped NuGet release, with no publish log to even hint at it.
+#
+# Two files carry a version and both must move together:
+#   package.json                                  version
+#   plugins/csharp-lsp/.claude-plugin/plugin.json version   <- the one Claude Code actually reads
+#
+# So the gate checks BOTH: each must be strictly greater than main's, and the two must equal
+# each other. Drift between them is its own silent failure — package.json bumped alone releases
+# nothing; plugin.json bumped alone makes the source tree lie about what users have.
+name: version-check
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: version-check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+      - name: Fetch main (one commit)
+        run: git fetch --depth=1 origin main
+      - name: package.json and plugin.json versions must agree and increase vs main
+        run: |
+          set -euo pipefail
+          PKG=package.json
+          PLUGIN=plugins/csharp-lsp/.claude-plugin/plugin.json
+
+          read_ver() { jq -r '.version // empty' "$1"; }
+
+          PR_PKG=$(read_ver "$PKG")
+          PR_PLUGIN=$(read_ver "$PLUGIN")
+          for pair in "$PKG:$PR_PKG" "$PLUGIN:$PR_PLUGIN"; do
+            if [ -z "${pair#*:}" ]; then
+              echo "::error::${pair%%:*} has no \"version\" key — the version is this repo's only release mechanism, so nothing can be gated."
+              exit 1
+            fi
+          done
+
+          # The two files must agree with each other before either is compared to main.
+          if [ "$PR_PKG" != "$PR_PLUGIN" ]; then
+            echo "::error::Version drift: $PKG is $PR_PKG but $PLUGIN is $PR_PLUGIN. Claude Code reads $PLUGIN; set both to the same number."
+            exit 1
+          fi
+
+          fail=0
+          for FILE in "$PKG" "$PLUGIN"; do
+            if git cat-file -e "origin/main:$FILE" 2>/dev/null; then
+              MAIN_VER=$(git show "origin/main:$FILE" | jq -r '.version // empty')
+            else
+              echo "main has no $FILE yet (first setup) — skipping $FILE."
+              continue
+            fi
+            if [ -z "$MAIN_VER" ]; then
+              echo "main's $FILE has no \"version\" key (first setup) — skipping $FILE."
+              continue
+            fi
+
+            echo "$FILE: main=$MAIN_VER  PR=$PR_PKG"
+            if [ "$PR_PKG" = "$MAIN_VER" ]; then
+              echo "::error::$FILE version is unchanged at $PR_PKG. A merge to main IS the release — users' /plugin update would see the same version and install nothing. Bump $PKG and $PLUGIN."
+              fail=1
+              continue
+            fi
+            # sort -V, never arithmetic weighting: maj*1000000+min*1000+patch mis-orders the
+            # moment any component reaches 1000.
+            HIGHER=$(printf '%s\n%s\n' "$MAIN_VER" "$PR_PKG" | sort -V | tail -1)
+            if [ "$HIGHER" != "$PR_PKG" ]; then
+              echo "::error::$FILE version is $PR_PKG, which is lower than main's $MAIN_VER. Bump $PKG and $PLUGIN above $MAIN_VER."
+              fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ] || exit 1
+          echo "OK: $PKG and $PLUGIN both at $PR_PKG."
