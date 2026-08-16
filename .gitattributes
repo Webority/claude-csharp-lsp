@@ -1,2 +1,5 @@
 * text=auto eol=lf
-*.{bat,cmd} text eol=crlf
+
+# No .bat or .cmd override here: this repo has none. A batch file with LF endings can
+# misbehave in cmd.exe, so add `*.{bat,cmd} text eol=crlf` back ALONGSIDE the first one
+# that arrives, rather than carrying a rule that matches nothing.
