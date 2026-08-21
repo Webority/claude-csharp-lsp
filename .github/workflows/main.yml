@@ -1,0 +1,30 @@
+# Named main.yml per the fleet two-file standard (cicd.md), even though this repo has no
+# deploy or publish step: it ships through the Claude Code git plugin marketplace, so the
+# version bump IS the release and main.yml's job is to prove the tree is green.
+#
+# runs-on stays ubuntu-latest, deliberately and permanently: this is our one PUBLIC repo, so
+# `pull_request` fires for FORKS. Pointing it at the self-hosted pool would let an outsider's
+# branch execute on our build box. Public repos also get unlimited free hosted minutes, so
+# there is nothing to save. The pre-push hook cannot cover this case either — we do not
+# control a fork contributor's machine, which is the one place a CI code check earns its keep.
+name: main
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run self-test (no dependencies)
+        run: npm test
