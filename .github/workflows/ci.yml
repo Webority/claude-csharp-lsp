@@ -11,13 +11,9 @@ concurrency:
 
 jobs:
   test:
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # setup-node is kept (unlike setup-dotnet, it works fine as the unprivileged ghrunner
-      # user) because this repo pins node 20 and the shared box's system node is not that
-      # version. The download lands in the runner's persistent tool cache, so it costs one
-      # fetch per instance, not one per run.
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
