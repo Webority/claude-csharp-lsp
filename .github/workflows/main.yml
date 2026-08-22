@@ -13,10 +13,23 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Weekly CodeQL sweep. A scan only on push finds what THIS change introduced; the cron is
+    # what catches a newly-published advisory against code that has not been touched. GitHub
+    # fires schedule: only from the default branch, which this repo is.
+    - cron: '15 3 * * 1'   # Mondays 03:15 UTC
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+
+# CodeQL lives here rather than in its own codeql.yml so the repo keeps the fleet two-file
+# standard (cicd.md). It is FREE on this repo and only this repo: code scanning is billed per
+# committer on private repos (~$30/committer/month) and free on public ones. This is our one
+# public repo, which also makes it the one strangers can read and fork.
+permissions:
+  contents: read
+  security-events: write   # required for CodeQL to upload its results
 
 jobs:
   test:
@@ -28,3 +41,14 @@ jobs:
           node-version: "20"
       - name: Run self-test (no dependencies)
         run: npm test
+
+  codeql:
+    # Skipped on the weekly cron only when it would duplicate a push scan; otherwise runs on
+    # push, PR (including forks) and the schedule.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@v3
