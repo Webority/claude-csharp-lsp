@@ -1,26 +1,24 @@
 # claude-csharp-lsp
+Public OSS (MIT): a solution-aware C# (Roslyn) LSP proxy plugin for Claude Code, zero-dependency Node.js. Retired from the internal Webority config on 01-Oct-2026; kept as low-touch public software. Cloud project 157 (Webority Libraries), component Claude C# LSP.
 
-**Public OSS tool** — solution-aware C# (Roslyn) LSP proxy for Claude Code. Zero-dependency Node.js. MIT licence.
+@~/.claude/conventions/pm.md
+@~/.claude/conventions/mcp-usage.md
 
-**Tech:** Node.js ≥ 20, no npm dependencies | **Plugin entry:** `.claude-plugin/` | **Proxy:** `plugins/csharp-lsp/proxy/`
+## Stack & layout
+- Node.js 20+, no npm dependencies, no build step. Plugin manifest in `.claude-plugin/`; the proxy in `plugins/csharp-lsp/proxy/` (start at `index.js`).
 
-**Build:** no build step — pure JS
+## Build, run, verify
+- `npm test` runs `plugins/csharp-lsp/proxy/selftest.js`. Run it before every push.
+- CI is `.github/workflows/main.yml` (tests on push to `main` and on every PR, plus a weekly CodeQL scan) and `version-check.yml`.
 
-**Test:**
-```bash
-npm test   # runs plugins/csharp-lsp/proxy/selftest.js
-```
+## Tests
+`selftest.js` is the suite and stays; new tests need Navneet's word.
 
-**CI:** GitHub Actions (`ci.yml`) — runs `npm test` on every push to `main` and every PR.
+## Rules
+- Work on `development` and release through a `development` to `main` PR like every library repo; external contributors' PRs target `development`.
+- `main.yml` stays on `ubuntu-latest`: the repo is public, so a fork's PR must never run on the self-hosted pool.
+- A release is the version bump in `package.json` plus a `CHANGELOG.md` entry; the Claude Code plugin marketplace reads it from `main`.
+- Zero npm dependencies is a product promise; add none.
 
-**Release process:** bump `version` in `package.json` → update `CHANGELOG.md` → commit → push tag `vX.Y.Z` to `main`; Claude Code marketplace picks up from the GitHub release.
-
-**Branch:** `main` (no `development` branch — OSS repo, PRs target `main` directly)
-
-**Install (users):**
-```bash
-/plugin marketplace add Webority/claude-csharp-lsp
-/plugin install csharp-lsp@claude-csharp-lsp
-```
-
-**No Webority client conventions apply** — this is a public tool repo, not a client project.
+## Where facts live
+- User install and configuration: `README.md`. History: `CHANGELOG.md`.
