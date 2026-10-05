@@ -9,14 +9,14 @@ Public OSS (MIT): a solution-aware C# (Roslyn) LSP proxy plugin for Claude Code,
 
 ## Build, run, verify
 - `npm test` runs `plugins/csharp-lsp/proxy/selftest.js`. Run it before every push.
-- CI is `.github/workflows/main.yml` (tests on push to `main` and on every PR, plus a weekly CodeQL scan) and `version-check.yml`.
+- CI is `.github/workflows/publish.yml` (tests on push to `main` and on every PR to `main`, plus a weekly CodeQL scan) and `version-check.yml`.
 
 ## Tests
 `selftest.js` is the suite and stays; new tests need Navneet's word.
 
 ## Rules
 - Work on `development` and release through a `development` to `main` PR like every library repo; external contributors' PRs target `development`.
-- `main.yml` stays on `ubuntu-latest`: the repo is public, so a fork's PR must never run on the self-hosted pool.
+- `publish.yml` stays on `ubuntu-latest`: the repo is public, so a fork's PR must never run on the self-hosted pool.
 - A release is the version bump in `package.json` plus a `CHANGELOG.md` entry; the Claude Code plugin marketplace reads it from `main`.
 - Zero npm dependencies is a product promise; add none.
 
