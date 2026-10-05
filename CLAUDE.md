@@ -3,6 +3,7 @@ Public OSS (MIT): a solution-aware C# (Roslyn) LSP proxy plugin for Claude Code,
 
 @~/.claude/conventions/pm.md
 @~/.claude/conventions/mcp-usage.md
+@~/.claude/conventions/shared-packages.md
 
 ## Stack & layout
 - Node.js 20+, no npm dependencies, no build step. Plugin manifest in `.claude-plugin/`; the proxy in `plugins/csharp-lsp/proxy/` (start at `index.js`).
