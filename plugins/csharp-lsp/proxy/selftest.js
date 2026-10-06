@@ -11,6 +11,20 @@ const { FrameReader, encodeMessage } = require('./framing');
 const { resolveOpenTarget, loadConfig, pathToFileUri, fileUriToPath } = require('./discovery');
 
 let passed = 0;
+
+// Every temp folder the run creates, removed on exit whether it passed or failed.
+const tempDirs = [];
+process.on('exit', () => {
+  for (const dir of tempDirs) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+});
+function makeTempDir(prefix) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
 function test(name, fn) {
   fn();
   passed++;
@@ -63,7 +77,7 @@ test('pathToFileUri / fileUriToPath round-trip', () => {
 console.log('discovery:');
 
 function tmpWorkspace(layout) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'csls-test-'));
+  const root = makeTempDir('csls-test-');
   for (const rel of layout) {
     const full = path.join(root, rel);
     fs.mkdirSync(path.dirname(full), { recursive: true });
@@ -163,7 +177,7 @@ const PROXY = path.join(__dirname, 'index.js');
 // A fake LSP "server": reads stdin, then per mode either leaves cleanly once the
 // client sends `exit`, crashes unprompted, or signal-kills itself unprompted.
 function writeFakeServer(mode) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'csls-fake-'));
+  const dir = makeTempDir('csls-fake-');
   const file = path.join(dir, 'fake.js');
   fs.writeFileSync(file, [
     "let buf = '';",
