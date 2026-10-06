@@ -18,44 +18,59 @@ const HEADER_SEPARATOR = Buffer.from('\r\n\r\n');
 
 class FrameReader {
   constructor() {
-    this._buffer = Buffer.alloc(0);
+    // Unconsumed bytes are kept as a chunk list and joined only when a frame
+    // can complete, so a large body arriving in many chunks is copied once
+    // instead of once per chunk.
+    this._chunks = [];
+    this._length = 0;
+    this._needed = 0; // total buffered bytes required before the pending frame is complete
   }
 
   // Append a chunk and drain all complete frames. Each frame is
   // { raw: Buffer, body: Buffer } where `raw` is the full on-wire message
   // (headers + body) and `body` is just the JSON payload.
   push(chunk) {
-    this._buffer = this._buffer.length === 0 ? chunk : Buffer.concat([this._buffer, chunk]);
+    this._chunks.push(chunk);
+    this._length += chunk.length;
+    if (this._length < this._needed) {
+      return []; // pending body still incomplete
+    }
+
+    let buffer = this._chunks.length === 1 ? this._chunks[0] : Buffer.concat(this._chunks, this._length);
     const frames = [];
+    this._needed = 0;
 
     for (;;) {
-      const headerEnd = this._buffer.indexOf(HEADER_SEPARATOR);
+      const headerEnd = buffer.indexOf(HEADER_SEPARATOR);
       if (headerEnd === -1) {
         break; // headers not fully received yet
       }
 
-      const headerText = this._buffer.toString('ascii', 0, headerEnd);
+      const headerText = buffer.toString('ascii', 0, headerEnd);
       const contentLength = parseContentLength(headerText);
       if (contentLength === null) {
         // Malformed header block: drop it and resync past the separator
         // rather than wedging the stream forever.
-        this._buffer = this._buffer.subarray(headerEnd + HEADER_SEPARATOR.length);
+        buffer = buffer.subarray(headerEnd + HEADER_SEPARATOR.length);
         continue;
       }
 
       const bodyStart = headerEnd + HEADER_SEPARATOR.length;
       const bodyEnd = bodyStart + contentLength;
-      if (this._buffer.length < bodyEnd) {
-        break; // body not fully received yet
+      if (buffer.length < bodyEnd) {
+        this._needed = bodyEnd; // body not fully received yet
+        break;
       }
 
       frames.push({
-        raw: this._buffer.subarray(0, bodyEnd),
-        body: this._buffer.subarray(bodyStart, bodyEnd),
+        raw: buffer.subarray(0, bodyEnd),
+        body: buffer.subarray(bodyStart, bodyEnd),
       });
-      this._buffer = this._buffer.subarray(bodyEnd);
+      buffer = buffer.subarray(bodyEnd);
     }
 
+    this._chunks = buffer.length === 0 ? [] : [buffer];
+    this._length = buffer.length;
     return frames;
   }
 }
