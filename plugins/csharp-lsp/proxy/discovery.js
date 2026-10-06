@@ -4,11 +4,14 @@ const fs = require('fs');
 const path = require('path');
 
 // Directories that never contain meaningful project/solution files and would
-// otherwise make discovery slow and noisy.
+// otherwise make discovery slow and noisy. Every dot-folder (.git, .vs, .venv,
+// .gradle, .cxx, .next and the like) is skipped as well.
 const SKIP_DIRS = new Set([
-  'node_modules', '.git', 'bin', 'obj', 'packages', '.vs', '.vscode',
-  'target', 'build', 'dist', '.idea', 'TestResults', '.understand-anything',
+  'node_modules', 'bin', 'obj', 'packages', 'target', 'build', 'dist', 'TestResults',
+  'Pods', 'vendor', 'venv', 'DerivedData',
 ]);
+
+const isSkippedName = (name) => name.startsWith('.') || SKIP_DIRS.has(name);
 
 // Optional per-workspace config from `.roslynlsp.json` at the workspace root.
 // All fields optional:
@@ -27,25 +30,23 @@ function loadConfig(dir) {
 }
 
 // Build a directory-prune predicate from the built-in skip list plus any
-// `exclude` entries (matched as a directory name or a path prefix).
+// `exclude` entries (matched as a directory name or a path prefix). `relPath`
+// is relative to the workspace folder, with `/` separators.
 function makeSkip(exclude) {
-  const extra = (Array.isArray(exclude) ? exclude : []).map((e) => String(e).replace(/[\\/]+$/, ''));
-  return (name, relPath) => {
-    if (SKIP_DIRS.has(name)) return true;
-    const rel = relPath.replace(/\\/g, '/');
-    return extra.some((e) => name === e || rel === e || rel.startsWith(e + '/'));
-  };
+  const extra = (Array.isArray(exclude) ? exclude : []).map((e) => String(e).replace(/\\/g, '/').replace(/\/+$/, ''));
+  if (extra.length === 0) return isSkippedName;
+  return (name, relPath) => isSkippedName(name) || extra.some((e) => name === e || relPath === e || relPath.startsWith(e + '/'));
 }
 
-// Walk `root` depth-first, yielding files whose name matches `predicate`,
+// Walk `root` depth-first once, collecting solution and project files and
 // pruning skipped directories. Errors on individual dirs are skipped so a
 // single unreadable folder never aborts discovery.
-function enumerateFiles(root, predicate, skip) {
-  const shouldSkip = skip || ((name) => SKIP_DIRS.has(name));
-  const out = [];
-  const stack = [root];
+function scan(root, skip) {
+  const solutions = [];
+  const projects = [];
+  const stack = [[root, '']];
   while (stack.length > 0) {
-    const dir = stack.pop();
+    const [dir, rel] = stack.pop();
     let entries;
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -53,15 +54,18 @@ function enumerateFiles(root, predicate, skip) {
       continue;
     }
     for (const entry of entries) {
-      const full = path.join(dir, entry.name);
+      const name = entry.name;
       if (entry.isDirectory()) {
-        if (!shouldSkip(entry.name, path.relative(root, full))) stack.push(full);
-      } else if (predicate(entry.name)) {
-        out.push(full);
+        const childRel = rel ? `${rel}/${name}` : name;
+        if (!skip(name, childRel)) stack.push([path.join(dir, name), childRel]);
+      } else if (isSolution(name)) {
+        solutions.push(path.join(dir, name));
+      } else if (isProject(name)) {
+        projects.push(path.join(dir, name));
       }
     }
   }
-  return out;
+  return { solutions, projects };
 }
 
 const isSolution = (name) => name.endsWith('.slnx') || name.endsWith('.sln');
@@ -99,21 +103,18 @@ function projectsFromSolution(solutionPath) {
 // Decide what to tell Roslyn to load for a single workspace folder.
 //   1. exactly one solution at the folder root  -> open it
 //   2. exactly one solution anywhere in the tree -> open it
-//   3. otherwise (zero, or several side-by-side solutions) -> open EVERY project
+//   3. otherwise (zero, or several solutions) -> open EVERY project
 function resolveForFolder(dir, skip) {
   const rootSolutions = solutionsAt(dir);
   if (rootSolutions.length === 1) {
     return { kind: 'solution', path: rootSolutions[0], reason: 'single root solution' };
   }
-  if (rootSolutions.length === 0) {
-    const allSolutions = enumerateFiles(dir, isSolution, skip);
-    if (allSolutions.length === 1) {
-      return { kind: 'solution', path: allSolutions[0], reason: 'single nested solution' };
-    }
+  const { solutions, projects } = scan(dir, skip);
+  if (rootSolutions.length === 0 && solutions.length === 1) {
+    return { kind: 'solution', path: solutions[0], reason: 'single nested solution' };
   }
-  const projects = enumerateFiles(dir, isProject, skip);
   if (projects.length > 0) {
-    const why = rootSolutions.length > 1 ? 'multiple solutions' : 'no solution';
+    const why = solutions.length > 1 ? 'multiple solutions' : 'no solution';
     return { kind: 'projects', paths: projects, reason: `${why} -> all projects` };
   }
   return { kind: 'none', reason: 'no solutions or projects found' };

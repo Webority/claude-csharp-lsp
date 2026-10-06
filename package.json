@@ -12,7 +12,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node plugins/csharp-lsp/proxy/selftest.js"
+    "test": "node plugins/csharp-lsp/proxy/selftest.js && node test/run.js"
   },
   "keywords": [
     "csharp",

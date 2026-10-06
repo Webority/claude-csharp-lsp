@@ -9,11 +9,11 @@ Public OSS (MIT): a solution-aware C# (Roslyn) LSP proxy plugin for Claude Code,
 - Node.js 20+, no npm dependencies, no build step. Plugin manifest in `.claude-plugin/`; the proxy in `plugins/csharp-lsp/proxy/` (start at `index.js`).
 
 ## Build, run, verify
-- `npm test` runs `plugins/csharp-lsp/proxy/selftest.js`. Run it before every push.
+- `npm test` runs `plugins/csharp-lsp/proxy/selftest.js`, then the regression tests in `test/` (`node test/run.js`, Node's built-in test runner). Run it before every push.
 - CI is `.github/workflows/publish.yml` (tests on push to `main` and on every PR to `main`, plus a weekly CodeQL scan) and `version-check.yml`.
 
 ## Tests
-`selftest.js` is the suite and stays; new tests need Navneet's word.
+`selftest.js` (proxy logic and the exit-code contract) and `test/*.test.js` (one file per fix) stay. `test/` sits outside `plugins/`, so it does not ship with the plugin.
 
 ## Rules
 - Work on `development` and release through a `development` to `main` PR like every library repo; external contributors' PRs target `development`.

@@ -133,7 +133,7 @@ Drop a `.roslynlsp.json` at your workspace root to steer discovery without editi
 
 - `solution`: pin one solution (relative to the workspace, or absolute).
 - `solutions`: load the union of these solutions' projects, for multi-solution workspaces.
-- `exclude`: directory names or path prefixes to skip during discovery.
+- `exclude`: directory names or path prefixes to skip during discovery. Discovery always skips `bin`, `obj`, `node_modules`, `packages`, `target`, `build`, `dist`, `TestResults`, `Pods`, `vendor`, `venv`, `DerivedData` and every folder whose name starts with a dot.
 - `readyTimeoutMs`: override the index-readiness hold cap.
 
 Precedence: `--solution` > `solution` > `solutions` > automatic discovery.
