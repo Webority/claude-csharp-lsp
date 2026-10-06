@@ -167,10 +167,12 @@ function main() {
   let readyTimer = null;
   let clientRequestedShutdown = false;    // set when the client asks for an LSP shutdown/exit
 
+  let clientPaused = false;
   const writeToServer = (buf) => {
-    if (!child.stdin.write(buf)) {
+    if (!child.stdin.write(buf) && !clientPaused) {
+      clientPaused = true;
       process.stdin.pause();
-      child.stdin.once('drain', () => process.stdin.resume());
+      child.stdin.once('drain', () => { clientPaused = false; process.stdin.resume(); });
     }
   };
 
