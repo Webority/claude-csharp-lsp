@@ -46,6 +46,10 @@ const INDEX_DEPENDENT_METHODS = new Set([
 // Roslyn sends this once every project in the opened solution has loaded.
 const READY_NOTIFICATION = 'workspace/projectInitializationComplete';
 
+// Every session on the machine appends to the same log; roll it over at start
+// once it passes this size.
+const LOG_ROTATE_BYTES = 5 * 1024 * 1024;
+
 function parseArgs(argv) {
   let server = null;
   let solution = null;
@@ -68,8 +72,11 @@ function openLog(logPath) {
   const target = logPath || path.join(os.tmpdir(), 'claude-csharp-lsp-logs', 'proxy.log');
   try {
     fs.mkdirSync(path.dirname(target), { recursive: true });
+    try {
+      if (fs.statSync(target).size > LOG_ROTATE_BYTES) fs.renameSync(target, `${target}.1`);
+    } catch { /* no log yet, or another session holds it open on Windows */ }
     const stream = fs.createWriteStream(target, { flags: 'a' });
-    return (msg) => { try { stream.write(`[${new Date().toISOString()}] ${msg}\n`); } catch { /* ignore */ } };
+    return (msg) => { try { stream.write(`[${new Date().toISOString()}] [${process.pid}] ${msg}\n`); } catch { /* ignore */ } };
   } catch {
     // Logging must never take the proxy down; if the file can't be opened,
     // fall back to a no-op (NEVER stdout, that is the LSP channel).
