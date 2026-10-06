@@ -186,8 +186,13 @@ function main() {
 
   // server -> client: pass every byte through untouched, and watch a copy of the
   // stream for the readiness notification.
+  let serverPaused = false;
   child.stdout.on('data', (chunk) => {
-    process.stdout.write(chunk);
+    if (!process.stdout.write(chunk) && !serverPaused) {
+      serverPaused = true;
+      child.stdout.pause();
+      process.stdout.once('drain', () => { serverPaused = false; child.stdout.resume(); });
+    }
     if (indexReady) return;
     try {
       for (const f of serverReader.push(chunk)) {
