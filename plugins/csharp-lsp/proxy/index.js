@@ -113,7 +113,9 @@ function spawnServer(serverPath, serverArgs, log) {
   const file = isBatch ? process.env.ComSpec || 'cmd.exe' : serverPath;
   const args = isBatch ? ['/d', '/c', serverPath, ...serverArgs] : serverArgs;
   log(`start server=${serverPath} args=[${serverArgs.join(' ')}]${isBatch ? ' (via cmd.exe)' : ''}`);
-  return spawn(file, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+  // On POSIX, Roslyn leads its own process group so shutdown can kill the
+  // helpers it starts as well, even after Roslyn itself has died.
+  return spawn(file, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, detached: process.platform !== 'win32' });
 }
 
 function extractWorkspaceDirs(initializeParams) {
@@ -274,12 +276,13 @@ function main() {
   // Kill the whole child process tree. On Windows, Roslyn runs under a cmd.exe
   // shim, so killing only `child` would orphan the dotnet grandchild; that is
   // how stray Roslyn servers accumulate across restarts. `taskkill /t` walks the
-  // tree, SIGKILL covers POSIX. Best-effort: the target may already be gone.
+  // tree; on POSIX SIGKILL goes to Roslyn's process group. Best-effort: the
+  // target may already be gone.
   const killTree = (pid) => {
     if (!pid) return;
     try {
       if (process.platform === 'win32') execFileSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' });
-      else process.kill(pid, 'SIGKILL');
+      else process.kill(-pid, 'SIGKILL');
     } catch { /* already dead, or nothing to kill */ }
   };
 
