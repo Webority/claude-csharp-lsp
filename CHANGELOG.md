@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog, and this project adheres to semantic versioning.
 
+## [0.4.0]
+
+### Changed
+
+- Faster startup in large multi-repo folders: discovery walks the tree once and skips `Pods`, `vendor`, `venv`, `DerivedData` and every dot-folder (about 20x faster on a 104,000-folder tree).
+- The proxy log now says "multiple solutions" when several nested solutions lead to opening every project.
+- Large LSP messages are reassembled in linear time (a 20 MB message took 2.9 s and now takes about 40 ms).
+- Less CPU while a solution loads: server messages are decoded only when they can be the ready signal.
+- A pinned solution that does not exist is now skipped and named in the log, instead of stalling reference lookups for the full 60 s hold.
+- Fixed duplicate drain listeners (and a possible MaxListenersExceededWarning) when the Roslyn input pipe is full.
+- The proxy now applies backpressure to Roslyn when Claude Code reads slowly, instead of buffering output in memory.
+- Proxy log lines carry the process id, and the shared log rolls over to `proxy.log.1` past 5 MB.
+- On macOS and Linux, shutdown now ends Roslyn's helper processes too, including after a Roslyn crash.
+
 ## [0.3.3]
 
 ### Fixed

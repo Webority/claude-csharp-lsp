@@ -96,7 +96,7 @@ LSP-based edits (rename, code actions, formatting) are not exposed by Claude Cod
 
 - Zero dependencies. Pure Node built-ins (`child_process`, `fs`, `path`, `Buffer`). Nothing to audit, nothing to break.
 - Byte-exact passthrough. Server-to-client output is piped verbatim; client-to-server messages are forwarded as the exact bytes received. The proxy only reads `initialize` (to learn your workspace folders) and injects one notification after `initialized`.
-- Logs to a file, never stdout. stdout is the LSP channel; diagnostics go to `<temp>/claude-csharp-lsp-logs/proxy.log`.
+- Logs to a file, never stdout. stdout is the LSP channel; diagnostics go to `<temp>/claude-csharp-lsp-logs/proxy.log`, each line tagged with the proxy's process id. A log over 5 MB is moved to `proxy.log.1` when the next session starts.
 - Windows-safe. Roslyn's `.cmd` shim is launched via `cmd.exe /d /c` so binary LSP framing is not corrupted.
 - Clean teardown and crash recovery. On exit the proxy kills its entire Roslyn child tree, so restarts never leave orphaned language servers. If Roslyn dies unexpectedly the proxy exits non-zero so Claude Code's restart policy (`maxRestarts`) brings the stack back and re-runs the handshake; on a client-initiated shutdown it exits cleanly so nothing is restarted.
 - Index-aware. Reverse-lookups are held until Roslyn's cross-solution index is ready, so the first query returns a complete result instead of an empty one.
@@ -133,10 +133,10 @@ Drop a `.roslynlsp.json` at your workspace root to steer discovery without editi
 
 - `solution`: pin one solution (relative to the workspace, or absolute).
 - `solutions`: load the union of these solutions' projects, for multi-solution workspaces.
-- `exclude`: directory names or path prefixes to skip during discovery.
+- `exclude`: directory names or path prefixes to skip during discovery. Discovery always skips `bin`, `obj`, `node_modules`, `packages`, `target`, `build`, `dist`, `TestResults`, `Pods`, `vendor`, `venv`, `DerivedData` and every folder whose name starts with a dot.
 - `readyTimeoutMs`: override the index-readiness hold cap.
 
-Precedence: `--solution` > `solution` > `solutions` > automatic discovery.
+Precedence: `--solution` > `solution` > `solutions` > automatic discovery. A pinned solution that does not exist is skipped, named in the log's `open:` line, and the next source is used.
 
 ## Troubleshooting
 

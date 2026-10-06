@@ -46,6 +46,10 @@ const INDEX_DEPENDENT_METHODS = new Set([
 // Roslyn sends this once every project in the opened solution has loaded.
 const READY_NOTIFICATION = 'workspace/projectInitializationComplete';
 
+// Every session on the machine appends to the same log; roll it over at start
+// once it passes this size.
+const LOG_ROTATE_BYTES = 5 * 1024 * 1024;
+
 function parseArgs(argv) {
   let server = null;
   let solution = null;
@@ -68,8 +72,11 @@ function openLog(logPath) {
   const target = logPath || path.join(os.tmpdir(), 'claude-csharp-lsp-logs', 'proxy.log');
   try {
     fs.mkdirSync(path.dirname(target), { recursive: true });
+    try {
+      if (fs.statSync(target).size > LOG_ROTATE_BYTES) fs.renameSync(target, `${target}.1`);
+    } catch { /* no log yet, or another session holds it open on Windows */ }
     const stream = fs.createWriteStream(target, { flags: 'a' });
-    return (msg) => { try { stream.write(`[${new Date().toISOString()}] ${msg}\n`); } catch { /* ignore */ } };
+    return (msg) => { try { stream.write(`[${new Date().toISOString()}] [${process.pid}] ${msg}\n`); } catch { /* ignore */ } };
   } catch {
     // Logging must never take the proxy down; if the file can't be opened,
     // fall back to a no-op (NEVER stdout, that is the LSP channel).
@@ -106,7 +113,9 @@ function spawnServer(serverPath, serverArgs, log) {
   const file = isBatch ? process.env.ComSpec || 'cmd.exe' : serverPath;
   const args = isBatch ? ['/d', '/c', serverPath, ...serverArgs] : serverArgs;
   log(`start server=${serverPath} args=[${serverArgs.join(' ')}]${isBatch ? ' (via cmd.exe)' : ''}`);
-  return spawn(file, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+  // On POSIX, Roslyn leads its own process group so shutdown can kill the
+  // helpers it starts as well, even after Roslyn itself has died.
+  return spawn(file, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, detached: process.platform !== 'win32' });
 }
 
 function extractWorkspaceDirs(initializeParams) {
@@ -167,10 +176,12 @@ function main() {
   let readyTimer = null;
   let clientRequestedShutdown = false;    // set when the client asks for an LSP shutdown/exit
 
+  let clientPaused = false;
   const writeToServer = (buf) => {
-    if (!child.stdin.write(buf)) {
+    if (!child.stdin.write(buf) && !clientPaused) {
+      clientPaused = true;
       process.stdin.pause();
-      child.stdin.once('drain', () => process.stdin.resume());
+      child.stdin.once('drain', () => { clientPaused = false; process.stdin.resume(); });
     }
   };
 
@@ -184,11 +195,17 @@ function main() {
 
   // server -> client: pass every byte through untouched, and watch a copy of the
   // stream for the readiness notification.
+  let serverPaused = false;
   child.stdout.on('data', (chunk) => {
-    process.stdout.write(chunk);
+    if (!process.stdout.write(chunk) && !serverPaused) {
+      serverPaused = true;
+      child.stdout.pause();
+      process.stdout.once('drain', () => { serverPaused = false; child.stdout.resume(); });
+    }
     if (indexReady) return;
     try {
       for (const f of serverReader.push(chunk)) {
+        if (!f.body.includes('projectInitializationComplete')) continue; // cheap pre-check; JSON may escape the '/'
         try {
           if (JSON.parse(f.body.toString('utf8')).method === READY_NOTIFICATION) markReady('projectInitializationComplete');
         } catch { /* ignore non-JSON frames */ }
@@ -259,12 +276,13 @@ function main() {
   // Kill the whole child process tree. On Windows, Roslyn runs under a cmd.exe
   // shim, so killing only `child` would orphan the dotnet grandchild; that is
   // how stray Roslyn servers accumulate across restarts. `taskkill /t` walks the
-  // tree, SIGKILL covers POSIX. Best-effort: the target may already be gone.
+  // tree; on POSIX SIGKILL goes to Roslyn's process group. Best-effort: the
+  // target may already be gone.
   const killTree = (pid) => {
     if (!pid) return;
     try {
       if (process.platform === 'win32') execFileSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' });
-      else process.kill(pid, 'SIGKILL');
+      else process.kill(-pid, 'SIGKILL');
     } catch { /* already dead, or nothing to kill */ }
   };
 
