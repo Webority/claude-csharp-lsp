@@ -189,6 +189,7 @@ function main() {
     if (indexReady) return;
     try {
       for (const f of serverReader.push(chunk)) {
+        if (!f.body.includes('projectInitializationComplete')) continue; // cheap pre-check; JSON may escape the '/'
         try {
           if (JSON.parse(f.body.toString('utf8')).method === READY_NOTIFICATION) markReady('projectInitializationComplete');
         } catch { /* ignore non-JSON frames */ }
