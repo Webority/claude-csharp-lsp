@@ -136,7 +136,7 @@ Drop a `.roslynlsp.json` at your workspace root to steer discovery without editi
 - `exclude`: directory names or path prefixes to skip during discovery. Discovery always skips `bin`, `obj`, `node_modules`, `packages`, `target`, `build`, `dist`, `TestResults`, `Pods`, `vendor`, `venv`, `DerivedData` and every folder whose name starts with a dot.
 - `readyTimeoutMs`: override the index-readiness hold cap.
 
-Precedence: `--solution` > `solution` > `solutions` > automatic discovery.
+Precedence: `--solution` > `solution` > `solutions` > automatic discovery. A pinned solution that does not exist is skipped, named in the log's `open:` line, and the next source is used.
 
 ## Troubleshooting
 

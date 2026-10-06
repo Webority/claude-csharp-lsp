@@ -121,15 +121,20 @@ function resolveForFolder(dir, skip) {
 }
 
 // Resolve what to open. Precedence: explicit --solution, then .roslynlsp.json
-// (`solution`, then `solutions`), then automatic discovery.
+// (`solution`, then `solutions`), then automatic discovery. A pinned solution
+// that does not exist is skipped and named in the reason: Roslyn would never
+// signal readiness for it, so every held request would wait the full cap.
 function resolveOpenTarget(workspaceDirs, explicitSolution, config) {
   const cfg = config || {};
-  if (explicitSolution) {
-    return { kind: 'solution', path: path.resolve(explicitSolution), reason: 'explicit --solution' };
-  }
   const firstDir = (workspaceDirs || []).find(Boolean);
-  if (cfg.solution && firstDir) {
-    return { kind: 'solution', path: path.resolve(firstDir, cfg.solution), reason: 'config solution' };
+  const pins = [];
+  if (explicitSolution) pins.push({ path: path.resolve(explicitSolution), reason: 'explicit --solution' });
+  if (cfg.solution && firstDir) pins.push({ path: path.resolve(firstDir, cfg.solution), reason: 'config solution' });
+  const missing = [];
+  const withMissing = (reason) => [...missing, reason].join('; ');
+  for (const pin of pins) {
+    if (fs.existsSync(pin.path)) return { kind: 'solution', path: pin.path, reason: withMissing(pin.reason) };
+    missing.push(`${pin.reason} not found: ${pin.path}`);
   }
   if (Array.isArray(cfg.solutions) && cfg.solutions.length && firstDir) {
     const seen = new Set();
@@ -139,7 +144,7 @@ function resolveOpenTarget(workspaceDirs, explicitSolution, config) {
         if (!seen.has(p)) { seen.add(p); paths.push(p); }
       }
     }
-    if (paths.length) return { kind: 'projects', paths, reason: `config solutions union (${cfg.solutions.length})` };
+    if (paths.length) return { kind: 'projects', paths, reason: withMissing(`config solutions union (${cfg.solutions.length})`) };
   }
   const skip = makeSkip(cfg.exclude);
   for (const dir of workspaceDirs || []) {
@@ -148,9 +153,9 @@ function resolveOpenTarget(workspaceDirs, explicitSolution, config) {
     try { isDir = fs.statSync(dir).isDirectory(); } catch { isDir = false; }
     if (!isDir) continue;
     const result = resolveForFolder(dir, skip);
-    if (result.kind !== 'none') return result;
+    if (result.kind !== 'none') return { ...result, reason: withMissing(result.reason) };
   }
-  return { kind: 'none', reason: 'no workspace folder yielded a solution or project' };
+  return { kind: 'none', reason: withMissing('no workspace folder yielded a solution or project') };
 }
 
 function pathToFileUri(p) {
