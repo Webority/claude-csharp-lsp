@@ -30,6 +30,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 1
+      - uses: Webority/gh-actions/pr-checks@v2
+      # report never fails the job: delete this `with:` once the repo's findings are fixed or excepted.
+      - uses: Webority/gh-actions/workflow-lint@v2
+        with:
+          mode: report
       - name: Fetch main (one commit)
         run: git fetch --depth=1 origin main
       - name: package.json and plugin.json versions must agree and increase vs main
