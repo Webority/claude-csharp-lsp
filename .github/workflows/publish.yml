@@ -18,7 +18,7 @@ on:
     # Weekly CodeQL sweep. A scan only on push finds what THIS change introduced; the cron is
     # what catches a newly-published advisory against code that has not been touched. GitHub
     # fires schedule: only from the default branch, which this repo is.
-    - cron: '15 3 * * 1'   # Mondays 03:15 UTC
+    - cron: '20 19 * * 0'   # Sundays 19:20 UTC
 
 concurrency:
   group: publish-${{ github.ref }}
