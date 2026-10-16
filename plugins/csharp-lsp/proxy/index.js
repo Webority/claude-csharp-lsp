@@ -20,7 +20,7 @@
 //   node index.js --server <roslyn-language-server> [--solution <path>]
 //                 [--log <path>] [-- <args forwarded to the server>]
 
-const { spawn, execFileSync } = require('child_process');
+const { spawn, execFile, execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -173,13 +173,46 @@ function isProcessGone(pid) {
   }
 }
 
-function writeRecord(roslynPid, log) {
+// A process's start time, which tells a live Roslyn apart from an unrelated
+// process that later took the same pid. Null when it cannot be read.
+function startStampCommand(pid) {
+  return process.platform === 'win32'
+    ? ['powershell', ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`]]
+    : ['ps', ['-o', 'lstart=', '-p', String(pid)]];
+}
+
+function readStartStampSync(pid) {
+  const [file, args] = startStampCommand(pid);
   try {
-    fs.mkdirSync(ROSLYN_RECORD_DIR, { recursive: true });
-    fs.writeFileSync(OWN_RECORD_PATH, JSON.stringify({ proxyPid: process.pid, roslynPid }));
-  } catch (err) {
-    log(`roslyn record write failed: ${err.message}`);
+    const out = execFileSync(file, args, { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return out || null;
+  } catch {
+    return null;
   }
+}
+
+function readStartStamp(pid, done) {
+  const [file, args] = startStampCommand(pid);
+  execFile(file, args, { encoding: 'utf8', timeout: 5000, windowsHide: true }, (err, stdout) => {
+    const out = err ? '' : String(stdout).trim();
+    done(out || null);
+  });
+}
+
+// The record is written once the start time is known, so a sweep never kills on a pid alone.
+function writeRecord(roslynPid, log) {
+  readStartStamp(roslynPid, (roslynStart) => {
+    if (!roslynStart) {
+      log(`roslyn record skipped: start time of ${roslynPid} unreadable`);
+      return;
+    }
+    try {
+      fs.mkdirSync(ROSLYN_RECORD_DIR, { recursive: true });
+      fs.writeFileSync(OWN_RECORD_PATH, JSON.stringify({ proxyPid: process.pid, roslynPid, roslynStart }));
+    } catch (err) {
+      log(`roslyn record write failed: ${err.message}`);
+    }
+  });
 }
 
 function removeRecord(log) {
@@ -202,13 +235,17 @@ function sweepOrphanRoslyn(killTree, log) {
         log(`orphan sweep: skipping unreadable ${name}: ${err.message}`);
         continue;
       }
-      if (!record || !isPid(record.proxyPid) || !isPid(record.roslynPid)) {
+      if (!record || !isPid(record.proxyPid) || !isPid(record.roslynPid) || typeof record.roslynStart !== 'string') {
         log(`orphan sweep: skipping malformed ${name}`);
         continue;
       }
       if (!isProcessGone(record.proxyPid)) continue;
-      log(`orphan sweep: proxy ${record.proxyPid} is gone; ending its roslyn ${record.roslynPid}`);
-      killTree(record.roslynPid);
+      if (readStartStampSync(record.roslynPid) === record.roslynStart) {
+        log(`orphan sweep: proxy ${record.proxyPid} is gone; ending its roslyn ${record.roslynPid}`);
+        killTree(record.roslynPid);
+      } else {
+        log(`orphan sweep: roslyn ${record.roslynPid} already exited or its pid was reused; nothing to end`);
+      }
       try {
         fs.rmSync(file, { force: true });
       } catch (err) {
