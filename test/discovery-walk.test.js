@@ -23,24 +23,24 @@ function workspace(layout) {
   return root;
 }
 
-test('dot-folders, Pods, vendor, venv and DerivedData are pruned from discovery', () => {
+test('dot-folders, Pods, vendor, venv and DerivedData are pruned from discovery', async () => {
   const root = workspace([
     'src/Real.csproj',
     '.venv/A.csproj', '.cache/B.csproj', '.gradle/C.csproj',
     'Pods/D.csproj', 'ios/Pods/E.csproj', 'vendor/F.csproj', 'venv/G.csproj', 'DerivedData/H.csproj',
   ]);
-  const r = resolveOpenTarget([root]);
+  const r = await resolveOpenTarget([root]);
 
   assert.strictEqual(r.kind, 'projects');
   assert.deepStrictEqual(r.paths.map((p) => path.basename(p)), ['Real.csproj']);
 });
 
-test('several nested solutions are reported as multiple solutions', () => {
+test('several nested solutions are reported as multiple solutions', async () => {
   const root = workspace([
     'repoA/A.slnx', 'repoA/src/A.csproj',
     'repoB/B.slnx', 'repoB/src/B.csproj',
   ]);
-  const r = resolveOpenTarget([root]);
+  const r = await resolveOpenTarget([root]);
 
   assert.strictEqual(r.kind, 'projects');
   assert.strictEqual(r.paths.length, 2);

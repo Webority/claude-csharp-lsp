@@ -25,13 +25,21 @@ function makeTempDir(prefix) {
   return dir;
 }
 
+// Tests and section headers run in order from one queue, so async discovery
+// tests finish before the next section prints.
+let queue = Promise.resolve();
 function test(name, fn) {
-  fn();
-  passed++;
-  console.log(`  ok  ${name}`);
+  queue = queue.then(async () => {
+    await fn();
+    passed++;
+    console.log(`  ok  ${name}`);
+  });
+}
+function section(name) {
+  queue = queue.then(() => console.log(name));
 }
 
-console.log('framing:');
+section('framing:');
 
 test('parses a single frame', () => {
   const body = JSON.stringify({ jsonrpc: '2.0', method: 'initialized', params: {} });
@@ -66,7 +74,7 @@ test('encodeMessage round-trips through FrameReader', () => {
   assert.strictEqual(JSON.parse(frames[0].body).params.solution, 'file:///x');
 });
 
-console.log('uri:');
+section('uri:');
 
 test('pathToFileUri / fileUriToPath round-trip', () => {
   const p = process.platform === 'win32' ? 'C:\\Code\\Proj\\A.sln' : '/code/proj/A.sln';
@@ -74,7 +82,7 @@ test('pathToFileUri / fileUriToPath round-trip', () => {
   assert.strictEqual(path.normalize(round), path.normalize(path.resolve(p)));
 });
 
-console.log('discovery:');
+section('discovery:');
 
 function tmpWorkspace(layout) {
   const root = makeTempDir('csls-test-');
@@ -86,53 +94,53 @@ function tmpWorkspace(layout) {
   return root;
 }
 
-test('single root solution -> solution/open', () => {
+test('single root solution -> solution/open', async () => {
   const root = tmpWorkspace(['App.sln', 'src/App/App.csproj']);
-  const r = resolveOpenTarget([root]);
+  const r = await resolveOpenTarget([root]);
   assert.strictEqual(r.kind, 'solution');
   assert.strictEqual(path.basename(r.path), 'App.sln');
 });
 
-test('single nested solution -> solution/open', () => {
+test('single nested solution -> solution/open', async () => {
   const root = tmpWorkspace(['repo/App.slnx', 'repo/src/App.csproj']);
-  const r = resolveOpenTarget([root]);
+  const r = await resolveOpenTarget([root]);
   assert.strictEqual(r.kind, 'solution');
   assert.strictEqual(path.basename(r.path), 'App.slnx');
 });
 
-test('multiple solutions (multi-repo) -> all projects', () => {
+test('multiple solutions (multi-repo) -> all projects', async () => {
   const root = tmpWorkspace([
     'repoA/A.slnx', 'repoA/src/A.csproj',
     'repoB/B.slnx', 'repoB/src/B.csproj',
   ]);
-  const r = resolveOpenTarget([root]);
+  const r = await resolveOpenTarget([root]);
   assert.strictEqual(r.kind, 'projects');
   assert.strictEqual(r.paths.length, 2);
 });
 
-test('no solution but projects -> all projects', () => {
+test('no solution but projects -> all projects', async () => {
   const root = tmpWorkspace(['src/A/A.csproj', 'src/B/B.csproj']);
-  const r = resolveOpenTarget([root]);
+  const r = await resolveOpenTarget([root]);
   assert.strictEqual(r.kind, 'projects');
   assert.strictEqual(r.paths.length, 2);
 });
 
-test('explicit solution overrides discovery', () => {
+test('explicit solution overrides discovery', async () => {
   const root = tmpWorkspace(['A.sln', 'B.sln']);
-  const r = resolveOpenTarget([root], path.join(root, 'B.sln'));
+  const r = await resolveOpenTarget([root], path.join(root, 'B.sln'));
   assert.strictEqual(r.kind, 'solution');
   assert.strictEqual(path.basename(r.path), 'B.sln');
 });
 
-test('prunes bin/obj/node_modules', () => {
+test('prunes bin/obj/node_modules', async () => {
   const root = tmpWorkspace(['bin/Ghost.csproj', 'obj/Ghost2.csproj', 'src/Real.csproj']);
-  const r = resolveOpenTarget([root]);
+  const r = await resolveOpenTarget([root]);
   assert.strictEqual(r.kind, 'projects');
   assert.strictEqual(r.paths.length, 1);
   assert.strictEqual(path.basename(r.paths[0]), 'Real.csproj');
 });
 
-console.log('config (.roslynlsp.json):');
+section('config (.roslynlsp.json):');
 
 test('loadConfig reads .roslynlsp.json', () => {
   const root = tmpWorkspace(['App.sln']);
@@ -142,25 +150,25 @@ test('loadConfig reads .roslynlsp.json', () => {
   assert.deepStrictEqual(cfg.exclude, ['legacy']);
 });
 
-test('config solution pin overrides discovery', () => {
+test('config solution pin overrides discovery', async () => {
   const root = tmpWorkspace(['A.sln', 'B.sln', 'src/A.csproj']);
-  const r = resolveOpenTarget([root], null, { solution: 'B.sln' });
+  const r = await resolveOpenTarget([root], null, { solution: 'B.sln' });
   assert.strictEqual(r.kind, 'solution');
   assert.strictEqual(path.basename(r.path), 'B.sln');
 });
 
-test('config solutions union loads referenced projects', () => {
+test('config solutions union loads referenced projects', async () => {
   const root = tmpWorkspace(['repoA/src/A.csproj', 'repoB/src/B.csproj']);
   fs.writeFileSync(path.join(root, 'repoA/A.slnx'), '<Solution><Project Path="src/A.csproj" /></Solution>');
   fs.writeFileSync(path.join(root, 'repoB/B.slnx'), '<Solution><Project Path="src/B.csproj" /></Solution>');
-  const r = resolveOpenTarget([root], null, { solutions: ['repoA/A.slnx', 'repoB/B.slnx'] });
+  const r = await resolveOpenTarget([root], null, { solutions: ['repoA/A.slnx', 'repoB/B.slnx'] });
   assert.strictEqual(r.kind, 'projects');
   assert.strictEqual(r.paths.length, 2);
 });
 
-test('config exclude prunes a directory from discovery', () => {
+test('config exclude prunes a directory from discovery', async () => {
   const root = tmpWorkspace(['src/Real.csproj', 'legacy/Old.csproj']);
-  const r = resolveOpenTarget([root], null, { exclude: ['legacy'] });
+  const r = await resolveOpenTarget([root], null, { exclude: ['legacy'] });
   assert.strictEqual(r.kind, 'projects');
   assert.strictEqual(r.paths.length, 1);
   assert.strictEqual(path.basename(r.paths[0]), 'Real.csproj');
@@ -213,6 +221,8 @@ function runProxy(mode, sendExit) {
 }
 
 (async () => {
+  await queue;
+
   console.log('exit-code (crash recovery):');
 
   const clean = await runProxy('clean', true);

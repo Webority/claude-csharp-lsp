@@ -23,28 +23,28 @@ function workspace(layout) {
   return root;
 }
 
-test('a missing config solution falls through to discovery and is named in the reason', () => {
+test('a missing config solution falls through to discovery and is named in the reason', async () => {
   const root = workspace(['App.sln', 'src/App.csproj']);
-  const r = resolveOpenTarget([root], null, { solution: 'Gone.sln' });
+  const r = await resolveOpenTarget([root], null, { solution: 'Gone.sln' });
 
   assert.strictEqual(r.kind, 'solution');
   assert.strictEqual(path.basename(r.path), 'App.sln');
   assert.strictEqual(r.reason, `config solution not found: ${path.join(root, 'Gone.sln')}; single root solution`);
 });
 
-test('a missing --solution falls through to the config solution and is named in the reason', () => {
+test('a missing --solution falls through to the config solution and is named in the reason', async () => {
   const root = workspace(['A.sln', 'B.sln']);
   const missing = path.join(root, 'Missing.sln');
-  const r = resolveOpenTarget([root], missing, { solution: 'B.sln' });
+  const r = await resolveOpenTarget([root], missing, { solution: 'B.sln' });
 
   assert.strictEqual(r.kind, 'solution');
   assert.strictEqual(path.basename(r.path), 'B.sln');
   assert.strictEqual(r.reason, `explicit --solution not found: ${missing}; config solution`);
 });
 
-test('a pinned solution that exists keeps its plain reason', () => {
+test('a pinned solution that exists keeps its plain reason', async () => {
   const root = workspace(['A.sln', 'B.sln']);
-  const r = resolveOpenTarget([root], path.join(root, 'A.sln'), { solution: 'B.sln' });
+  const r = await resolveOpenTarget([root], path.join(root, 'A.sln'), { solution: 'B.sln' });
 
   assert.strictEqual(path.basename(r.path), 'A.sln');
   assert.strictEqual(r.reason, 'explicit --solution');

@@ -46,6 +46,16 @@ const INDEX_DEPENDENT_METHODS = new Set([
 // Roslyn sends this once every project in the opened solution has loaded.
 const READY_NOTIFICATION = 'workspace/projectInitializationComplete';
 
+// Client frames are parsed only when their raw bytes name a method this proxy
+// acts on. JSON may write '/' as '\/', so both spellings are checked.
+const ACTED_ON_METHODS = ['initialize', 'initialized', 'shutdown', 'exit', ...INDEX_DEPENDENT_METHODS];
+const ACTED_ON_NEEDLES = ACTED_ON_METHODS.flatMap((m) => [m, m.replace(/\//g, '\\/')]);
+
+// Where each proxy records the Roslyn server it started, so a later proxy can
+// end the server a hard-killed proxy left behind.
+const ROSLYN_RECORD_DIR = path.join(os.tmpdir(), 'claude-csharp-lsp-logs');
+const OWN_RECORD_PATH = path.join(ROSLYN_RECORD_DIR, `roslyn-${process.pid}.json`);
+
 // Every session on the machine appends to the same log; roll it over at start
 // once it passes this size.
 const LOG_ROTATE_BYTES = 5 * 1024 * 1024;
@@ -152,6 +162,64 @@ function buildOpenNotification(target, log) {
   return null;
 }
 
+const isPid = (v) => Number.isInteger(v) && v > 0;
+
+function isProcessGone(pid) {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (err) {
+    return err.code === 'ESRCH';
+  }
+}
+
+function writeRecord(roslynPid, log) {
+  try {
+    fs.mkdirSync(ROSLYN_RECORD_DIR, { recursive: true });
+    fs.writeFileSync(OWN_RECORD_PATH, JSON.stringify({ proxyPid: process.pid, roslynPid }));
+  } catch (err) {
+    log(`roslyn record write failed: ${err.message}`);
+  }
+}
+
+function removeRecord(log) {
+  try {
+    fs.rmSync(OWN_RECORD_PATH, { force: true });
+  } catch (err) {
+    log(`roslyn record delete failed: ${err.message}`);
+  }
+}
+
+function sweepOrphanRoslyn(killTree, log) {
+  try {
+    for (const name of fs.readdirSync(ROSLYN_RECORD_DIR)) {
+      if (!/^roslyn-\d+\.json$/.test(name)) continue;
+      const file = path.join(ROSLYN_RECORD_DIR, name);
+      let record;
+      try {
+        record = JSON.parse(fs.readFileSync(file, 'utf8'));
+      } catch (err) {
+        log(`orphan sweep: skipping unreadable ${name}: ${err.message}`);
+        continue;
+      }
+      if (!record || !isPid(record.proxyPid) || !isPid(record.roslynPid)) {
+        log(`orphan sweep: skipping malformed ${name}`);
+        continue;
+      }
+      if (!isProcessGone(record.proxyPid)) continue;
+      log(`orphan sweep: proxy ${record.proxyPid} is gone; ending its roslyn ${record.roslynPid}`);
+      killTree(record.roslynPid);
+      try {
+        fs.rmSync(file, { force: true });
+      } catch (err) {
+        log(`orphan sweep: delete failed for ${name}: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    if (err.code !== 'ENOENT') log(`orphan sweep failed: ${err.message}`);
+  }
+}
+
 function main() {
   const { server, solution, logPath, serverArgs, readyTimeoutMs } = parseArgs(process.argv.slice(2));
   const log = openLog(logPath);
@@ -161,9 +229,25 @@ function main() {
     process.exit(2);
   }
 
+  // Kill the whole child process tree. On Windows, Roslyn runs under a cmd.exe
+  // shim, so killing only `child` would orphan the dotnet grandchild; that is
+  // how stray Roslyn servers accumulate across restarts. `taskkill /t` walks the
+  // tree; on POSIX SIGKILL goes to Roslyn's process group. Best-effort: the
+  // target may already be gone.
+  const killTree = (pid) => {
+    if (!pid) return;
+    try {
+      if (process.platform === 'win32') execFileSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' });
+      else process.kill(-pid, 'SIGKILL');
+    } catch { /* already dead, or nothing to kill */ }
+  };
+
+  sweepOrphanRoslyn(killTree, log);
+
   const serverPath = resolveServer(server);
   const finalServerArgs = serverArgs.length > 0 ? serverArgs : DEFAULT_SERVER_ARGS.slice();
   const child = spawnServer(serverPath, finalServerArgs, log);
+  if (child.pid) writeRecord(child.pid, log);
 
   let openSent = false;
   let indexReady = false;
@@ -217,17 +301,15 @@ function main() {
 
   // client -> server: forward verbatim, inject the open notification after
   // `initialized`, and hold index-dependent requests until the index is ready.
-  process.stdin.on('data', (chunk) => {
-    let frames;
-    try {
-      frames = reader.push(chunk);
-    } catch (err) {
-      log(`framing error: ${err.message}`);
-      return;
-    }
-    for (const frame of frames) {
-      let method = null;
-      let params = null;
+  // Discovery is async, so frames that arrive while the open notification is
+  // being decided queue here and go out after it, in their original order.
+  let openPending = false;
+  const queued = [];
+
+  const handleClientFrame = (frame) => {
+    let method = null;
+    let params = null;
+    if (ACTED_ON_NEEDLES.some((needle) => frame.body.includes(needle))) {
       try {
         const msg = JSON.parse(frame.body.toString('utf8'));
         method = msg.method;
@@ -235,29 +317,31 @@ function main() {
       } catch {
         // Non-JSON or oversized; forward verbatim, don't inspect.
       }
+    }
 
-      if (method === 'initialize') {
-        workspaceDirs = extractWorkspaceDirs(params);
-        config = loadConfig(workspaceDirs[0]);
-        if (config.readyTimeoutMs) readyTimeoutEffective = Number(config.readyTimeoutMs) || readyTimeoutEffective;
-        log(`initialize: workspace dirs = [${workspaceDirs.join(', ')}]${Object.keys(config).length ? ' (.roslynlsp.json loaded)' : ''}`);
-      }
+    if (method === 'initialize') {
+      workspaceDirs = extractWorkspaceDirs(params);
+      config = loadConfig(workspaceDirs[0]);
+      if (config.readyTimeoutMs) readyTimeoutEffective = Number(config.readyTimeoutMs) || readyTimeoutEffective;
+      log(`initialize: workspace dirs = [${workspaceDirs.join(', ')}]${Object.keys(config).length ? ' (.roslynlsp.json loaded)' : ''}`);
+    }
 
-      // A client-driven shutdown means a later Roslyn exit is expected, not a
-      // crash. Record it so the exit handler can tell the two apart.
-      if (method === 'shutdown' || method === 'exit') clientRequestedShutdown = true;
+    // A client-driven shutdown means a later Roslyn exit is expected, not a
+    // crash. Record it so the exit handler can tell the two apart.
+    if (method === 'shutdown' || method === 'exit') clientRequestedShutdown = true;
 
-      if (!indexReady && INDEX_DEPENDENT_METHODS.has(method)) {
-        held.push(frame.raw);
-        log(`holding ${method} until index ready (${held.length} queued)`);
-        continue; // park it; released by markReady()
-      }
+    if (!indexReady && INDEX_DEPENDENT_METHODS.has(method)) {
+      held.push(frame.raw);
+      log(`holding ${method} until index ready (${held.length} queued)`);
+      return; // park it; released by markReady()
+    }
 
-      writeToServer(frame.raw); // forward the client's exact bytes
+    writeToServer(frame.raw); // forward the client's exact bytes
 
-      if (method === 'initialized' && !openSent) {
-        openSent = true;
-        const target = resolveOpenTarget(workspaceDirs, solution, config);
+    if (method === 'initialized' && !openSent) {
+      openSent = true;
+      openPending = true;
+      resolveOpenTarget(workspaceDirs, solution, config).then((target) => {
         const notification = buildOpenNotification(target, log);
         if (notification) {
           writeToServer(notification);
@@ -267,30 +351,35 @@ function main() {
         } else {
           markReady('no solution opened'); // nothing to index; never hold
         }
-      }
+        const pending = queued.splice(0);
+        openPending = false;
+        for (const f of pending) handleClientFrame(f);
+      });
+    }
+  };
+
+  process.stdin.on('data', (chunk) => {
+    let frames;
+    try {
+      frames = reader.push(chunk);
+    } catch (err) {
+      log(`framing error: ${err.message}`);
+      return;
+    }
+    for (const frame of frames) {
+      if (openPending) queued.push(frame);
+      else handleClientFrame(frame);
     }
   });
 
   let shuttingDown = false;
-
-  // Kill the whole child process tree. On Windows, Roslyn runs under a cmd.exe
-  // shim, so killing only `child` would orphan the dotnet grandchild; that is
-  // how stray Roslyn servers accumulate across restarts. `taskkill /t` walks the
-  // tree; on POSIX SIGKILL goes to Roslyn's process group. Best-effort: the
-  // target may already be gone.
-  const killTree = (pid) => {
-    if (!pid) return;
-    try {
-      if (process.platform === 'win32') execFileSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' });
-      else process.kill(-pid, 'SIGKILL');
-    } catch { /* already dead, or nothing to kill */ }
-  };
 
   const shutdown = (code) => {
     if (shuttingDown) return;
     shuttingDown = true;
     if (readyTimer) { try { clearTimeout(readyTimer); } catch { /* ignore */ } }
     killTree(child && child.pid);
+    removeRecord(log);
     process.exit(code);
   };
 

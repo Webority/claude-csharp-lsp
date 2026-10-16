@@ -41,7 +41,7 @@ function makeSkip(exclude) {
 // Walk `root` depth-first once, collecting solution and project files and
 // pruning skipped directories. Errors on individual dirs are skipped so a
 // single unreadable folder never aborts discovery.
-function scan(root, skip) {
+async function scan(root, skip) {
   const solutions = [];
   const projects = [];
   const stack = [[root, '']];
@@ -49,7 +49,7 @@ function scan(root, skip) {
     const [dir, rel] = stack.pop();
     let entries;
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
     } catch {
       continue;
     }
@@ -104,12 +104,12 @@ function projectsFromSolution(solutionPath) {
 //   1. exactly one solution at the folder root  -> open it
 //   2. exactly one solution anywhere in the tree -> open it
 //   3. otherwise (zero, or several solutions) -> open EVERY project
-function resolveForFolder(dir, skip) {
+async function resolveForFolder(dir, skip) {
   const rootSolutions = solutionsAt(dir);
   if (rootSolutions.length === 1) {
     return { kind: 'solution', path: rootSolutions[0], reason: 'single root solution' };
   }
-  const { solutions, projects } = scan(dir, skip);
+  const { solutions, projects } = await scan(dir, skip);
   if (rootSolutions.length === 0 && solutions.length === 1) {
     return { kind: 'solution', path: solutions[0], reason: 'single nested solution' };
   }
@@ -124,7 +124,7 @@ function resolveForFolder(dir, skip) {
 // (`solution`, then `solutions`), then automatic discovery. A pinned solution
 // that does not exist is skipped and named in the reason: Roslyn would never
 // signal readiness for it, so every held request would wait the full cap.
-function resolveOpenTarget(workspaceDirs, explicitSolution, config) {
+async function resolveOpenTarget(workspaceDirs, explicitSolution, config) {
   const cfg = config || {};
   const firstDir = (workspaceDirs || []).find(Boolean);
   const pins = [];
@@ -152,7 +152,7 @@ function resolveOpenTarget(workspaceDirs, explicitSolution, config) {
     let isDir = false;
     try { isDir = fs.statSync(dir).isDirectory(); } catch { isDir = false; }
     if (!isDir) continue;
-    const result = resolveForFolder(dir, skip);
+    const result = await resolveForFolder(dir, skip);
     if (result.kind !== 'none') return { ...result, reason: withMissing(result.reason) };
   }
   return { kind: 'none', reason: withMissing('no workspace folder yielded a solution or project') };
